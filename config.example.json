@@ -1,0 +1,5 @@
+{
+  "baseUrl": "https://artifacts.inds.space",
+  "accessClientId": "<Cloudflare Access service token client ID>",
+  "accessClientSecret": "<Cloudflare Access service token client secret>"
+}

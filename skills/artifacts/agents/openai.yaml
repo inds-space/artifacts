@@ -1,0 +1,4 @@
+interface:
+  display_name: "Artifacts"
+  short_description: "Publish and manage protected browser-renderable artifacts"
+  default_prompt: "Create the requested browser-renderable artifact, publish it with the artifacts CLI, and return its canonical URL."
