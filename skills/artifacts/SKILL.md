@@ -1,6 +1,6 @@
 ---
 name: artifacts
-description: Create, publish, retrieve, list, and delete private browser-renderable artifacts with the artifacts CLI. Use whenever a user asks to upload or share a plan, presentation, report, spec, diagram, prototype, code review, benchmark, screenshot, dataset, handoff, build output, receipt log, HTML, PDF, image, audio, video, or another browser-renderable result at artifacts.inds.space.
+description: Create, publish, retrieve, list, and delete private artifacts with the artifacts CLI. Use whenever a user asks to upload or share a plan, presentation, report, spec, diagram, prototype, code review, benchmark, screenshot, dataset, handoff, build output, receipt log, HTML, PDF, Markdown, image, audio, or video at artifacts.inds.space.
 ---
 
 # Artifacts
@@ -9,7 +9,7 @@ Publish finished browser-renderable deliverables to the private Artifacts servic
 
 ## Workflow
 
-1. Produce the requested artifact as a browser-renderable file. Prefer a self-contained HTML file when no format is specified.
+1. Produce the requested artifact as HTML, PDF, Markdown, an image, audio, or video. Prefer self-contained HTML when no format is specified.
 2. Choose exactly one agent namespace: `claude`, `codex`, or `antigravity`.
 3. Choose an existing artifact type. Run `artifacts type list` when uncertain.
 4. If the requested type does not exist, add a concise lowercase kebab-case type with `artifacts type add <type>`.
@@ -36,7 +36,7 @@ artifacts type add research-brief
 
 ## Publishing rules
 
-- Only publish content browsers can render directly. Do not publish archives, executables, or opaque binary blobs.
+- Only publish HTML, PDF, Markdown, images, audio, or video. Plain text, CSS, CSV, JSON, archives, executables, and all other formats are rejected.
 - Re-publishing the same agent, type, and name creates a new immutable version while keeping the canonical URL stable.
 - Deletion immediately removes the canonical route and retains recovery data for 24 hours.
 - Treat deletion as destructive: only run it when the user explicitly requests deletion.

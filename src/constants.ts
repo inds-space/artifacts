@@ -28,18 +28,11 @@ export function isAgent(value: string): value is Agent {
 export function isRenderableContentType(value: string): boolean {
   const mediaType = value.split(";", 1)[0]?.trim().toLowerCase() ?? "";
   return (
-    mediaType.startsWith("text/") ||
+    mediaType === "text/html" ||
+    mediaType === "text/markdown" ||
+    mediaType === "application/pdf" ||
     mediaType.startsWith("image/") ||
     mediaType.startsWith("audio/") ||
-    mediaType.startsWith("video/") ||
-    [
-      "application/javascript",
-      "application/json",
-      "application/ld+json",
-      "application/pdf",
-      "application/xhtml+xml",
-      "application/xml",
-      "application/wasm",
-    ].includes(mediaType)
+    mediaType.startsWith("video/")
   );
 }

@@ -98,7 +98,7 @@ async function getArtifact(env: CloudflareBindings, agent: Agent, type: string, 
 function parseUpload(request: Request): { contentType: string; sha256: string; sizeBytes: number | null; body: ReadableStream } {
   if (!request.body) throw new HttpError(400, "Upload body is required");
   const contentType = request.headers.get("Content-Type")?.trim() ?? "";
-  if (!isRenderableContentType(contentType)) throw new HttpError(415, "Only content renderable by a browser is accepted");
+  if (!isRenderableContentType(contentType)) throw new HttpError(415, "Only HTML, PDF, Markdown, image, audio, and video files are accepted");
   const sha256 = request.headers.get("X-Artifact-SHA256")?.trim().toLowerCase() ?? "";
   if (!/^[a-f0-9]{64}$/.test(sha256)) throw new HttpError(400, "X-Artifact-SHA256 must be a lowercase SHA-256 hex digest");
   const length = request.headers.get("Content-Length");

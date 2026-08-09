@@ -101,12 +101,24 @@ describe("artifacts Worker", () => {
     expect(body.types.map((item) => item.name)).toContain("research-brief");
   });
 
-  it("accepts browser-renderable media without an application upload cap and rejects opaque files", async () => {
+  it("accepts only HTML, PDF, Markdown, images, audio, and video", async () => {
     await resetBindings();
-    const text = await publish("codex", "report", "plain", "browser text", "text/plain; charset=utf-8");
-    expect(text.status).toBe(201);
-    const opaque = await publish("codex", "report", "opaque", "bytes", "application/octet-stream");
-    expect(opaque.status).toBe(415);
+    const accepted = [
+      ["html", "text/html; charset=utf-8"],
+      ["markdown", "text/markdown; charset=utf-8"],
+      ["pdf", "application/pdf"],
+      ["image", "image/png"],
+      ["audio", "audio/mpeg"],
+      ["video", "video/mp4"],
+    ] as const;
+    for (const [name, contentType] of accepted) {
+      const response = await publish("codex", "report", name, "allowed bytes", contentType);
+      expect(response.status, `${contentType} should be accepted`).toBe(201);
+    }
+    for (const [name, contentType] of [["text", "text/plain"], ["css", "text/css"], ["csv", "text/csv"], ["json", "application/json"], ["opaque", "application/octet-stream"]] as const) {
+      const response = await publish("codex", "report", name, "rejected bytes", contentType);
+      expect(response.status, `${contentType} should be rejected`).toBe(415);
+    }
     const unknownType = await publish("codex", "unknown", "sample", "<h1>x</h1>");
     expect(unknownType.status).toBe(400);
     const badHash = await dispatch(new Request("http://localhost/api/v1/artifacts?agent=codex&type=plan&name=bad-hash", {

@@ -2,6 +2,8 @@
 
 Private, Access-protected publishing for browser-renderable agent artifacts.
 
+Uploads are restricted to HTML, PDF, Markdown, images, audio, and video. Plain text, CSS, CSV, JSON, archives, executables, and other formats are rejected.
+
 Canonical URLs use:
 
 ```text
