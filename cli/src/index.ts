@@ -1,9 +1,14 @@
 #!/usr/bin/env bun
 
+import { chmod, copyFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
+
 export {};
 
-const VERSION = "0.1.2";
+const VERSION = "0.2.0";
 const DEFAULT_BASE_URL = "https://artifacts.inds.space";
+const GITHUB_REPOSITORY = "inds-space/artifacts";
 const AGENTS = ["claude", "codex", "antigravity"] as const;
 
 type Config = { baseUrl?: string; accessClientId?: string; accessClientSecret?: string };
@@ -26,6 +31,7 @@ Usage:
   artifacts delete <agent>/<type>/<name>
   artifacts type list [--json]
   artifacts type add <name>
+  artifacts update [--force]
 
 Agents: ${AGENTS.join(", ")}
 
@@ -195,9 +201,100 @@ async function types(args: string[], config: Required<Config>): Promise<void> {
   fail("type requires list or add");
 }
 
+async function runProcess(command: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const process = Bun.spawn(command, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    process.exited,
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+  ]);
+  return { exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
+function releaseAsset(): string {
+  const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : fail(`Unsupported operating system: ${process.platform}`);
+  const architecture = process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : fail(`Unsupported architecture: ${process.arch}`);
+  if (platform === "windows" && architecture !== "x64") fail("Windows updates currently support x64 only");
+  return `artifacts-${platform}-${architecture}${platform === "windows" ? ".exe" : ""}`;
+}
+
+function updateTarget(): string {
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA;
+    if (!localAppData) fail("LOCALAPPDATA is required to update artifacts on Windows");
+    return basename(process.execPath).toLowerCase() === "artifacts.exe"
+      ? process.execPath
+      : join(localAppData, "Programs", "artifacts", "artifacts.exe");
+  }
+  return process.execPath;
+}
+
+function quotePowerShell(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+async function scheduleWindowsUpdate(download: string, target: string, temporaryDirectory: string, version: string): Promise<void> {
+  const helper = join(temporaryDirectory, "apply-update.ps1");
+  const script = `$ErrorActionPreference = "Stop"
+Wait-Process -Id ${String(process.pid)} -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path ${quotePowerShell(dirname(target))} -Force | Out-Null
+Copy-Item -LiteralPath ${quotePowerShell(download)} -Destination ${quotePowerShell(target)} -Force
+Remove-Item -LiteralPath ${quotePowerShell(temporaryDirectory)} -Recurse -Force
+`;
+  await writeFile(helper, script, "utf8");
+  const updater = Bun.spawn([
+    "powershell",
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-WindowStyle", "Hidden",
+    "-File", helper,
+  ], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  updater.unref();
+  console.log(`Downloaded ${version}. The executable will be replaced after this command exits.`);
+}
+
+async function update(args: string[]): Promise<void> {
+  const auth = await runProcess(["gh", "auth", "status"]);
+  if (auth.exitCode !== 0) fail("Authenticated GitHub CLI access is required. Run: gh auth login");
+
+  const release = await runProcess(["gh", "release", "view", "--repo", GITHUB_REPOSITORY, "--json", "tagName", "--jq", ".tagName"]);
+  if (release.exitCode !== 0 || !/^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(release.stdout)) {
+    fail(release.stderr || "Could not resolve the latest private GitHub release");
+  }
+  const latest = release.stdout;
+  if (latest === `v${VERSION}` && !args.includes("--force")) {
+    console.log(`Already up to date (${latest}).`);
+    return;
+  }
+
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "artifacts-update-"));
+  const asset = releaseAsset();
+  const download = join(temporaryDirectory, asset);
+  const downloaded = await runProcess(["gh", "release", "download", latest, "--repo", GITHUB_REPOSITORY, "--pattern", asset, "--dir", temporaryDirectory]);
+  if (downloaded.exitCode !== 0) {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+    fail(downloaded.stderr || `Could not download ${asset}`);
+  }
+
+  const target = updateTarget();
+  if (process.platform === "win32") {
+    await scheduleWindowsUpdate(download, target, temporaryDirectory, latest);
+    return;
+  }
+
+  await mkdir(dirname(target), { recursive: true });
+  const replacement = `${target}.new`;
+  await copyFile(download, replacement);
+  await chmod(replacement, 0o755);
+  await rename(replacement, target);
+  await rm(temporaryDirectory, { recursive: true, force: true });
+  console.log(`Updated artifacts to ${latest}.`);
+}
+
 const [command, ...args] = Bun.argv.slice(2);
 if (!command || command === "help" || command === "--help" || command === "-h") { help(); process.exit(0); }
 if (command === "--version" || command === "-v") { console.log(VERSION); process.exit(0); }
+if (command === "update") { await update(args); process.exit(0); }
 const config = await loadConfig();
 switch (command) {
   case "publish": await publish(args, config); break;

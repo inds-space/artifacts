@@ -21,9 +21,12 @@ artifacts list --agent codex --type report
 artifacts delete codex/report/weekly-report
 artifacts type list
 artifacts type add research-brief
+artifacts update
 ```
 
 Set `ARTIFACTS_ACCESS_CLIENT_ID` and `ARTIFACTS_ACCESS_CLIENT_SECRET`, or add them to `%APPDATA%\artifacts\config.json` with the shape in `config.example.json`.
+
+Private CLI releases are installed and updated through an authenticated GitHub CLI session (`gh auth login`). `artifacts update` downloads the latest private release and replaces the installed executable.
 
 ## Development
 
