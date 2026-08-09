@@ -6,7 +6,7 @@ import { basename, dirname, join } from "node:path";
 
 export {};
 
-const VERSION = "0.2.3";
+const VERSION = "0.2.4";
 const DEFAULT_BASE_URL = "https://artifacts.inds.space";
 const GITHUB_REPOSITORY = "inds-space/artifacts";
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
