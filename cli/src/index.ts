@@ -2,7 +2,7 @@
 
 export {};
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const DEFAULT_BASE_URL = "https://artifacts.inds.space";
 const AGENTS = ["claude", "codex", "antigravity"] as const;
 
