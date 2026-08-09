@@ -238,18 +238,31 @@ async function scheduleWindowsUpdate(download: string, target: string, temporary
   const script = `$ErrorActionPreference = "Stop"
 Wait-Process -Id ${String(process.pid)} -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path ${quotePowerShell(dirname(target))} -Force | Out-Null
-Copy-Item -LiteralPath ${quotePowerShell(download)} -Destination ${quotePowerShell(target)} -Force
+$deadline = (Get-Date).AddSeconds(30)
+$updated = $false
+do {
+  try {
+    Copy-Item -LiteralPath ${quotePowerShell(download)} -Destination ${quotePowerShell(target)} -Force
+    $updated = $true
+  } catch {
+    Start-Sleep -Milliseconds 250
+  }
+} until ($updated -or (Get-Date) -ge $deadline)
+if (-not $updated) { throw "Timed out replacing the artifacts executable" }
 Remove-Item -LiteralPath ${quotePowerShell(temporaryDirectory)} -Recurse -Force
 `;
   await writeFile(helper, script, "utf8");
-  const updater = Bun.spawn([
+  const launcher = `$ErrorActionPreference = "Stop"
+$arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ${quotePowerShell(helper)})
+Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WindowStyle Hidden | Out-Null
+`;
+  const launched = await runProcess([
     "powershell",
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
-    "-WindowStyle", "Hidden",
-    "-File", helper,
-  ], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  updater.unref();
+    "-Command", launcher,
+  ]);
+  if (launched.exitCode !== 0) fail(launched.stderr || "Could not start the Windows update helper");
   console.log(`Downloaded ${version}. The executable will be replaced after this command exits.`);
 }
 
