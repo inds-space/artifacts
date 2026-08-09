@@ -6,7 +6,7 @@ import { basename, dirname, join } from "node:path";
 
 export {};
 
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 const DEFAULT_BASE_URL = "https://artifacts.inds.space";
 const GITHUB_REPOSITORY = "inds-space/artifacts";
 const AGENTS = ["claude", "codex", "antigravity"] as const;

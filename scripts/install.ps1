@@ -28,5 +28,5 @@ if (($userPath -split ";") -notcontains $installDir) {
   [Environment]::SetEnvironmentVariable("Path", (($userPath.TrimEnd(";"), $installDir) -join ";"), "User")
 }
 
-Write-Output "Installed artifacts $($release.tag_name) to $destination"
+Write-Output "Installed artifacts $($release.tagName) to $destination"
 Write-Output "Open a new terminal, then run: artifacts --help"
