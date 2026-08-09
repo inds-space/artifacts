@@ -26,7 +26,7 @@ artifacts update
 
 Set `ARTIFACTS_ACCESS_CLIENT_ID` and `ARTIFACTS_ACCESS_CLIENT_SECRET`, or add them to `%APPDATA%\artifacts\config.json` with the shape in `config.example.json`.
 
-Private CLI releases are installed and updated through an authenticated GitHub CLI session (`gh auth login`). `artifacts update` downloads the latest private release and replaces the installed executable.
+Private CLI releases are installed and updated through an authenticated GitHub CLI session (`gh auth login`). `artifacts update` downloads the latest private release and replaces the installed executable. Normal CLI use checks GitHub at most once every 24 hours and prints a notice when an update is available; a failed check never blocks the requested command.
 
 ## Development
 

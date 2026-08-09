@@ -6,15 +6,17 @@ import { basename, dirname, join } from "node:path";
 
 export {};
 
-const VERSION = "0.2.1";
+const VERSION = "0.2.3";
 const DEFAULT_BASE_URL = "https://artifacts.inds.space";
 const GITHUB_REPOSITORY = "inds-space/artifacts";
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AGENTS = ["claude", "codex", "antigravity"] as const;
 
 type Config = { baseUrl?: string; accessClientId?: string; accessClientSecret?: string };
 type Identity = { agent: string; type: string; name: string };
 type Artifact = { agent: string; type: string; name: string; version: number; updatedAt: string; url: string };
 type ArtifactEnvelope = { artifact: Artifact; versions?: unknown[] };
+type UpdateCheckState = { checkedAt: number; latest?: string };
 
 function fail(message: string): never {
   console.error(`artifacts: ${message}`);
@@ -49,6 +51,54 @@ function configPath(): string {
   const root = process.env.XDG_CONFIG_HOME ?? (process.env.HOME ? `${process.env.HOME}/.config` : undefined);
   if (!root) fail("HOME or XDG_CONFIG_HOME is required");
   return `${root}/artifacts/config.json`;
+}
+
+function updateCheckPath(): string {
+  return join(dirname(configPath()), "update-check.json");
+}
+
+function isNewerVersion(candidate: string): boolean {
+  const parse = (value: string): [number, number, number] => {
+    const [major = 0, minor = 0, patch = 0] = (value.replace(/^v/, "").split(/[+-]/, 1)[0] ?? "").split(".").map(Number);
+    return [major, minor, patch];
+  };
+  const current = parse(VERSION);
+  const latest = parse(candidate);
+  if (latest[0] !== current[0]) return latest[0] > current[0];
+  if (latest[1] !== current[1]) return latest[1] > current[1];
+  return latest[2] > current[2];
+}
+
+async function notifyUpdateAvailable(): Promise<void> {
+  const path = updateCheckPath();
+  let state: UpdateCheckState | undefined;
+  try {
+    const file = Bun.file(path);
+    if (await file.exists()) state = await file.json() as UpdateCheckState;
+  } catch {
+    state = undefined;
+  }
+
+  const now = Date.now();
+  if (!state || !Number.isFinite(state.checkedAt) || now - state.checkedAt >= UPDATE_CHECK_INTERVAL_MS) {
+    let latest: string | undefined;
+    const auth = await runProcess(["gh", "auth", "status"]);
+    if (auth.exitCode === 0) {
+      const release = await runProcess(["gh", "release", "view", "--repo", GITHUB_REPOSITORY, "--json", "tagName", "--jq", ".tagName"]);
+      if (release.exitCode === 0 && /^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(release.stdout)) latest = release.stdout;
+    }
+    state = { checkedAt: now, ...(latest ? { latest } : {}) };
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    } catch {
+      // An update check must never block the requested command.
+    }
+  }
+
+  if (state.latest && isNewerVersion(state.latest)) {
+    console.error(`Artifacts CLI ${state.latest} is available. Run: artifacts update`);
+  }
 }
 
 async function loadConfig(): Promise<Required<Config>> {
@@ -202,13 +252,17 @@ async function types(args: string[], config: Required<Config>): Promise<void> {
 }
 
 async function runProcess(command: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const process = Bun.spawn(command, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    process.exited,
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-  ]);
-  return { exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
+  try {
+    const process = Bun.spawn(command, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      process.exited,
+      new Response(process.stdout).text(),
+      new Response(process.stderr).text(),
+    ]);
+    return { exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
+  } catch (error) {
+    return { exitCode: 127, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 function releaseAsset(): string {
@@ -305,9 +359,10 @@ async function update(args: string[]): Promise<void> {
 }
 
 const [command, ...args] = Bun.argv.slice(2);
-if (!command || command === "help" || command === "--help" || command === "-h") { help(); process.exit(0); }
-if (command === "--version" || command === "-v") { console.log(VERSION); process.exit(0); }
+if (!command || command === "help" || command === "--help" || command === "-h") { help(); await notifyUpdateAvailable(); process.exit(0); }
+if (command === "--version" || command === "-v") { console.log(VERSION); await notifyUpdateAvailable(); process.exit(0); }
 if (command === "update") { await update(args); process.exit(0); }
+await notifyUpdateAvailable();
 const config = await loadConfig();
 switch (command) {
   case "publish": await publish(args, config); break;
