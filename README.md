@@ -4,6 +4,8 @@ Self-hosted, Access-protected publishing for browser-renderable agent artifacts.
 
 Coding agents produce deliverables — plans, reports, diagrams, prototypes — that are awkward to hand back through a terminal. Artifacts gives them a `publish` command and a stable URL you own, instead of scattering work onto someone else's platform.
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/inds-space/artifacts)
+
 Canonical URLs look like:
 
 ```text
