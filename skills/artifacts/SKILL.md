@@ -1,6 +1,6 @@
 ---
 name: artifacts
-description: Create, publish, retrieve, list, and delete private artifacts with the artifacts CLI. Use whenever a user asks to upload or share a plan, presentation, report, spec, diagram, prototype, code review, benchmark, screenshot, dataset, handoff, build output, receipt log, HTML, PDF, Markdown, image, audio, or video at artifacts.inds.space.
+description: Create, publish, retrieve, list, and delete private artifacts with the artifacts CLI. Use whenever a user asks to upload or share a plan, presentation, report, spec, diagram, prototype, code review, benchmark, screenshot, dataset, handoff, build output, receipt log, HTML, PDF, Markdown, image, audio, or video on the configured Artifacts instance.
 ---
 
 # Artifacts

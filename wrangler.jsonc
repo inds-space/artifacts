@@ -6,26 +6,31 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
+  // The hostname your instance is served from. Add it as a custom domain in
+  // the Cloudflare dashboard, then put an Access policy in front of it.
   "routes": [
     {
-      "pattern": "artifacts.inds.space",
+      "pattern": "artifacts.example.com",
       "custom_domain": true
     }
   ],
   "vars": {
-    "PUBLIC_BASE_URL": "https://artifacts.inds.space"
+    // Must match the route above: canonical artifact URLs are built from it.
+    "PUBLIC_BASE_URL": "https://artifacts.example.com"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "artifacts-db",
-      "database_id": "6bd313a9-5d68-4101-afbb-965b89def980",
+      // From `wrangler d1 create artifacts-db`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],
   "r2_buckets": [
     {
       "binding": "STORAGE",
+      // From `wrangler r2 bucket create artifacts-storage`.
       "bucket_name": "artifacts-storage"
     }
   ],

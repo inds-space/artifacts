@@ -58,7 +58,7 @@ describe("artifacts Worker", () => {
     expect(created.status, await created.clone().text()).toBe(201);
     await expect(created.json()).resolves.toMatchObject({ artifact: {
       agent: "codex", type: "plan", name: "auth-refactor", version: 1,
-      url: "https://artifacts.inds.space/codex/plan/auth-refactor",
+      url: `${env.PUBLIC_BASE_URL}/codex/plan/auth-refactor`,
     }});
 
     const second = "<!doctype html><title>Two</title><h1>Version two</h1>";

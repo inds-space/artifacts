@@ -6,8 +6,7 @@ import { basename, dirname, join } from "node:path";
 
 export {};
 
-const VERSION = "0.2.4";
-const DEFAULT_BASE_URL = "https://artifacts.inds.space";
+const VERSION = "0.3.0";
 const GITHUB_REPOSITORY = "inds-space/artifacts";
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AGENTS = ["claude", "codex", "antigravity"] as const;
@@ -36,6 +35,9 @@ Usage:
   artifacts update [--force]
 
 Agents: ${AGENTS.join(", ")}
+
+Instance:
+  ARTIFACTS_BASE_URL (or "baseUrl" in the config file)
 
 Authentication:
   ARTIFACTS_ACCESS_CLIENT_ID and ARTIFACTS_ACCESS_CLIENT_SECRET
@@ -69,6 +71,19 @@ function isNewerVersion(candidate: string): boolean {
   return latest[2] > current[2];
 }
 
+async function latestReleaseTag(): Promise<string | undefined> {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest`, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": `artifacts-cli/${VERSION}` },
+    });
+    if (!response.ok) return undefined;
+    const { tag_name: tag }: { tag_name?: string } = await response.json();
+    return tag && /^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(tag) ? tag : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function notifyUpdateAvailable(): Promise<void> {
   const path = updateCheckPath();
   let state: UpdateCheckState | undefined;
@@ -81,12 +96,7 @@ async function notifyUpdateAvailable(): Promise<void> {
 
   const now = Date.now();
   if (!state || !Number.isFinite(state.checkedAt) || now - state.checkedAt >= UPDATE_CHECK_INTERVAL_MS) {
-    let latest: string | undefined;
-    const auth = await runProcess(["gh", "auth", "status"]);
-    if (auth.exitCode === 0) {
-      const release = await runProcess(["gh", "release", "view", "--repo", GITHUB_REPOSITORY, "--json", "tagName", "--jq", ".tagName"]);
-      if (release.exitCode === 0 && /^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(release.stdout)) latest = release.stdout;
-    }
+    const latest = await latestReleaseTag();
     state = { checkedAt: now, ...(latest ? { latest } : {}) };
     try {
       await mkdir(dirname(path), { recursive: true });
@@ -107,7 +117,8 @@ async function loadConfig(): Promise<Required<Config>> {
   if (await file.exists()) {
     try { fileConfig = await file.json() as Config; } catch { fail(`Invalid JSON in ${configPath()}`); }
   }
-  const baseUrl = (process.env.ARTIFACTS_BASE_URL ?? fileConfig.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+  const baseUrl = (process.env.ARTIFACTS_BASE_URL ?? fileConfig.baseUrl ?? "").replace(/\/$/, "");
+  if (!baseUrl) fail(`Set ARTIFACTS_BASE_URL to your Artifacts instance, or add "baseUrl" to ${configPath()}`);
   const accessClientId = process.env.ARTIFACTS_ACCESS_CLIENT_ID ?? process.env.PLAN_ACCESS_CLIENT_ID ?? fileConfig.accessClientId ?? "";
   const accessClientSecret = process.env.ARTIFACTS_ACCESS_CLIENT_SECRET ?? process.env.PLAN_ACCESS_CLIENT_SECRET ?? fileConfig.accessClientSecret ?? "";
   if (!accessClientId || !accessClientSecret) fail("Cloudflare Access credentials are required");
@@ -321,14 +332,8 @@ Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WindowStyle H
 }
 
 async function update(args: string[]): Promise<void> {
-  const auth = await runProcess(["gh", "auth", "status"]);
-  if (auth.exitCode !== 0) fail("Authenticated GitHub CLI access is required. Run: gh auth login");
-
-  const release = await runProcess(["gh", "release", "view", "--repo", GITHUB_REPOSITORY, "--json", "tagName", "--jq", ".tagName"]);
-  if (release.exitCode !== 0 || !/^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(release.stdout)) {
-    fail(release.stderr || "Could not resolve the latest private GitHub release");
-  }
-  const latest = release.stdout;
+  const latest = await latestReleaseTag();
+  if (!latest) fail(`Could not resolve the latest release of ${GITHUB_REPOSITORY}`);
   if (latest === `v${VERSION}` && !args.includes("--force")) {
     console.log(`Already up to date (${latest}).`);
     return;
@@ -337,11 +342,12 @@ async function update(args: string[]): Promise<void> {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "artifacts-update-"));
   const asset = releaseAsset();
   const download = join(temporaryDirectory, asset);
-  const downloaded = await runProcess(["gh", "release", "download", latest, "--repo", GITHUB_REPOSITORY, "--pattern", asset, "--dir", temporaryDirectory]);
-  if (downloaded.exitCode !== 0) {
+  const response = await fetch(`https://github.com/${GITHUB_REPOSITORY}/releases/download/${latest}/${asset}`);
+  if (!response.ok) {
     await rm(temporaryDirectory, { recursive: true, force: true });
-    fail(downloaded.stderr || `Could not download ${asset}`);
+    fail(`Could not download ${asset} (HTTP ${String(response.status)})`);
   }
+  await Bun.write(download, response);
 
   const target = updateTarget();
   if (process.platform === "win32") {
