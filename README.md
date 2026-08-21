@@ -1,4 +1,4 @@
-# Artifacts
+# Artifacts 
 
 Self-hosted, Access-protected publishing for browser-renderable agent artifacts, with a remote MCP server built in.
 
