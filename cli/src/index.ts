@@ -6,10 +6,11 @@ import { basename, dirname, join } from "node:path";
 
 export {};
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.1";
 const GITHUB_REPOSITORY = "inds-space/artifacts";
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const AGENTS = ["claude", "codex", "antigravity"] as const;
+const AGENTS = ["claude", "codex", "antigravity", "chatgpt"] as const;
+const AGENT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
 type Config = { baseUrl?: string; accessClientId?: string; accessClientSecret?: string };
 type Identity = { agent: string; type: string; name: string };
@@ -34,7 +35,8 @@ Usage:
   artifacts type add <name>
   artifacts update [--force]
 
-Agents: ${AGENTS.join(", ")}
+Built-in agents: ${AGENTS.join(", ")}
+Custom agents: any lowercase kebab-case slug up to 64 characters
 
 Instance:
   ARTIFACTS_BASE_URL (or "baseUrl" in the config file)
@@ -154,11 +156,16 @@ function valueAfter(args: string[], flag: string): string | undefined {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
+function agentName(value: string): string {
+  const agent = value.trim().toLowerCase();
+  if (!AGENT_PATTERN.test(agent)) fail("Agent must be a lowercase kebab-case slug up to 64 characters");
+  return agent;
+}
+
 function identity(value: string | undefined): Identity {
   const [agent, type, name, extra] = (value ?? "").split("/");
   if (!agent || !type || !name || extra) fail("Identity must be <agent>/<type>/<name>");
-  if (!AGENTS.includes(agent as (typeof AGENTS)[number])) fail(`Unknown agent. Supported agents: ${AGENTS.join(", ")}`);
-  return { agent, type, name };
+  return { agent: agentName(agent), type, name };
 }
 
 function contentTypeFor(path: string, detected: string): string {
@@ -185,11 +192,11 @@ async function publish(args: string[], config: Required<Config>): Promise<void> 
   if (!path || path.startsWith("-")) fail("publish requires a file path");
   const file = Bun.file(path);
   if (!(await file.exists())) fail(`File not found: ${path}`);
-  const agent = valueAfter(args, "--agent");
+  const agentValue = valueAfter(args, "--agent");
   const type = valueAfter(args, "--type");
   const name = valueAfter(args, "--name");
-  if (!agent || !type || !name) fail("publish requires --agent, --type, and --name");
-  if (!AGENTS.includes(agent as (typeof AGENTS)[number])) fail(`Unknown agent. Supported agents: ${AGENTS.join(", ")}`);
+  if (!agentValue || !type || !name) fail("publish requires --agent, --type, and --name");
+  const agent = agentName(agentValue);
   const contentType = contentTypeFor(path, file.type);
   const digest = await sha256(path);
   const headers = authHeaders(config);
@@ -217,7 +224,7 @@ async function list(args: string[], config: Required<Config>): Promise<void> {
   const query = new URLSearchParams();
   const agent = valueAfter(args, "--agent");
   const type = valueAfter(args, "--type");
-  if (agent) query.set("agent", agent);
+  if (agent) query.set("agent", agentName(agent));
   if (type) query.set("type", type);
   const body = await api<{ artifacts: Artifact[] }>(config, `/api/v1/artifacts?${query}`);
   if (args.includes("--json")) console.log(JSON.stringify(body.artifacts, null, 2)); else printTable(body.artifacts);
