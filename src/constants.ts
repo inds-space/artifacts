@@ -1,7 +1,8 @@
-export const AGENTS = ["claude", "codex", "antigravity"] as const;
+export const AGENTS = ["claude", "codex", "antigravity", "chatgpt"] as const;
 
-export type Agent = (typeof AGENTS)[number];
+export type Agent = string;
 
+export const AGENT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 export const NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 export const TYPE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 
@@ -21,8 +22,8 @@ export const DEFAULT_TYPES = [
   "receipt-log",
 ] as const;
 
-export function isAgent(value: string): value is Agent {
-  return (AGENTS as readonly string[]).includes(value);
+export function isAgent(value: string): boolean {
+  return AGENT_PATTERN.test(value);
 }
 
 export function isRenderableContentType(value: string): boolean {
