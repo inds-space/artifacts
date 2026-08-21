@@ -1,4 +1,4 @@
-import { AGENTS, isAgent, isRenderableContentType, NAME_PATTERN, TYPE_PATTERN, type Agent } from "./constants";
+import { AGENTS, AGENT_PATTERN, isAgent, isRenderableContentType, NAME_PATTERN, TYPE_PATTERN, type Agent } from "./constants";
 
 type ArtifactRow = {
   id: string;
@@ -39,7 +39,7 @@ type ToolDefinition = {
 };
 
 const SERVER_NAME = "inds-space-artifacts";
-const SERVER_VERSION = "0.4.0";
+const SERVER_VERSION = "0.4.1";
 const LATEST_PROTOCOL_VERSION = "2026-07-28";
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   "2026-07-28",
@@ -49,6 +49,11 @@ const SUPPORTED_PROTOCOL_VERSIONS = new Set([
 ]);
 const MAX_PUBLISH_BYTES = 8 * 1024 * 1024;
 const MAX_INLINE_TEXT_BYTES = 256 * 1024;
+const AGENT_SCHEMA = {
+  type: "string",
+  pattern: AGENT_PATTERN.source,
+  description: `Lowercase kebab-case agent slug. Built-ins: ${AGENTS.join(", ")}. Custom agent names are supported.`,
+};
 
 const TOOLS: ToolDefinition[] = [
   {
@@ -57,7 +62,7 @@ const TOOLS: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        agent: { type: "string", enum: [...AGENTS] },
+        agent: AGENT_SCHEMA,
         type: { type: "string", description: "Artifact type, for example plan or report." },
         limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
       },
@@ -70,7 +75,7 @@ const TOOLS: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        agent: { type: "string", enum: [...AGENTS] },
+        agent: AGENT_SCHEMA,
         type: { type: "string" },
         name: { type: "string" },
         includeContent: { type: "boolean", default: false },
@@ -85,7 +90,7 @@ const TOOLS: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        agent: { type: "string", enum: [...AGENTS] },
+        agent: AGENT_SCHEMA,
         type: { type: "string" },
         name: { type: "string" },
         contentType: { type: "string", description: "Supported media type such as text/markdown, text/html, application/pdf, image/png, audio/mpeg, or video/mp4." },
@@ -102,7 +107,7 @@ const TOOLS: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        agent: { type: "string", enum: [...AGENTS] },
+        agent: AGENT_SCHEMA,
         type: { type: "string" },
         name: { type: "string" },
       },
@@ -148,8 +153,9 @@ function optionalBoolean(args: Record<string, unknown>, name: string, fallback: 
 }
 
 function parseAgent(value: string): Agent {
-  if (!isAgent(value)) throw new McpToolError(`Unknown agent. Supported agents: ${AGENTS.join(", ")}`);
-  return value;
+  const agent = value.trim().toLowerCase();
+  if (!isAgent(agent)) throw new McpToolError("Agent must be a lowercase kebab-case slug up to 64 characters");
+  return agent;
 }
 
 function parseType(value: string): string {
