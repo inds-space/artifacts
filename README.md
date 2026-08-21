@@ -1,57 +1,32 @@
-# Artifacts 
+# Artifacts
 
-Self-hosted, Access-protected publishing for browser-renderable agent artifacts, with a remote MCP server built in.
+Self-hosted, Access-protected publishing for browser-renderable agent artifacts, with **MCP and CLI as first-class interfaces**.
 
-Coding agents produce deliverables — plans, reports, diagrams, prototypes — that are awkward to hand back through a terminal. Artifacts gives them a CLI, a standard MCP endpoint, and stable URLs you own instead of scattering work onto someone else's platform.
+Coding agents produce plans, reports, diagrams, prototypes, and other deliverables that are awkward to hand back through a terminal. Artifacts gives them a standard remote MCP server, a CLI, and stable URLs you own.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/inds-space/artifacts)
 
-Canonical URLs look like:
+Canonical URLs:
 
 ```text
 https://artifacts.example.com/<agent>/<artifact-type>/<name>
 ```
 
-Built-in agent names are `claude`, `codex`, `antigravity`, and `chatgpt`. You can also use any custom lowercase kebab-case agent slug up to 64 characters, such as `gemini`, `local-agent`, or `research-bot`.
-
-The MCP endpoint is:
+MCP endpoint:
 
 ```text
 https://artifacts.example.com/mcp
 ```
 
-One Cloudflare Worker, D1 for metadata, R2 for objects. Re-publishing creates an immutable version behind a stable canonical URL. Deletes are immediate at the URL and recoverable in storage for 24 hours.
+Built-in agents are `claude`, `codex`, `antigravity`, and `chatgpt`. Any lowercase kebab-case custom agent slug up to 64 characters is also supported, such as `gemini`, `local-agent`, or `research-bot`.
 
-Uploads are restricted to HTML, PDF, Markdown, images, audio, and video. Plain text, CSS, CSV, JSON, archives, executables, and other formats are rejected.
+One Cloudflare Worker serves the REST API, canonical artifact URLs, and MCP endpoint. D1 stores metadata and R2 stores immutable artifact versions. Re-publishing creates a new version behind the same canonical URL; deletes are immediate at the URL and recoverable in storage for 24 hours.
 
-## Self-hosting
-
-You need a Cloudflare account with Workers, D1, R2, and Access.
-
-```bash
-pnpm install
-wrangler d1 create artifacts-db
-wrangler r2 bucket create artifacts-storage
-```
-
-Edit `wrangler.jsonc`:
-
-- `routes[0].pattern` — the hostname you will serve from
-- `vars.PUBLIC_BASE_URL` — the same hostname, with scheme; canonical URLs are built from it
-- `d1_databases[0].database_id` — the id printed by `wrangler d1 create`
-
-Then deploy and apply migrations:
-
-```bash
-wrangler deploy
-wrangler d1 migrations apply artifacts-db --remote
-```
-
-Finally, put a Cloudflare Access application in front of the hostname. Add your own identity for browser and OAuth access, and optionally issue a **service token** for the CLI. The Worker requires an authenticated Access identity on every request and does not implement a separate user database.
+Uploads are restricted to HTML, PDF, Markdown, images, audio, and video.
 
 ## MCP
 
-Artifacts exposes a stateless Streamable HTTP MCP server at `/mcp` with these tools:
+MCP is a primary interface to Artifacts, not a wrapper around the CLI. The Worker exposes a stateless Streamable HTTP server at `/mcp` with native tools for the complete artifact workflow:
 
 - `list_artifacts`
 - `get_artifact`
@@ -60,9 +35,9 @@ Artifacts exposes a stateless Streamable HTTP MCP server at `/mcp` with these to
 - `list_artifact_types`
 - `add_artifact_type`
 
-All tools that accept an `agent` use the same open agent-slug schema, so MCP clients can use the built-ins or custom agent names without server changes.
+All tools that accept an `agent` support both built-in and custom agent names.
 
-A typical MCP client only needs the URL:
+A typical MCP client only needs the endpoint:
 
 ```json
 {
@@ -76,20 +51,11 @@ A typical MCP client only needs the URL:
 
 ### OAuth with Cloudflare Access
 
-For normal remote MCP clients, enable **Managed OAuth** on the Cloudflare Access application protecting your Artifacts hostname.
+For remote MCP clients, enable **Managed OAuth** on the Cloudflare Access application protecting the Artifacts hostname and enable **Dynamic Client Registration**.
 
-In Cloudflare Zero Trust:
+For broad native/desktop compatibility, allow localhost and loopback redirect URIs. For hosted clients, add only the HTTPS redirect URI patterns for clients you intend to trust.
 
-1. Go to **Access controls → Applications** and edit the application protecting your Artifacts hostname.
-2. Open **Advanced settings** and enable **Managed OAuth**.
-3. Enable **Dynamic Client Registration**.
-4. Enable localhost and loopback redirect URIs for desktop/IDE clients.
-5. Add the HTTPS redirect URI patterns required by any hosted MCP clients you want to support.
-6. Use a short access-token lifetime and a longer OAuth grant/session lifetime.
-
-Cloudflare Access then handles OAuth discovery, authorization-code + PKCE, refresh tokens, and policy enforcement. The Worker continues to trust the Access identity passed in `Cf-Access-Jwt-Assertion`.
-
-For example, a useful CLI/agent configuration is:
+A practical configuration is:
 
 ```text
 Access token lifetime: 10m
@@ -98,13 +64,15 @@ Allow localhost clients: yes
 Allow loopback clients: yes
 ```
 
-Do not blindly allow arbitrary hosted redirect URIs. Add only the MCP clients you actually intend to trust.
+Cloudflare Access handles OAuth discovery, authorization-code + PKCE, refresh tokens, and Access policy enforcement. The Worker trusts the authenticated Access identity passed by Cloudflare.
 
 The MCP server accepts protocol versions `2026-07-28`, `2025-11-25`, `2025-06-18`, and `2025-03-26`.
 
-MCP publishing accepts UTF-8 content directly or binary content as base64. Individual MCP publish payloads are limited to 8 MiB, and inline reads are limited to 256 KiB; larger artifacts should be consumed from their canonical URL.
+MCP publishing accepts UTF-8 content directly or binary content as base64. Publish payloads are limited to 8 MiB and inline reads to 256 KiB; larger artifacts should be consumed through their canonical URL.
 
 ## CLI
+
+The CLI exposes the same artifact model for shell scripts and agents that prefer command execution.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inds-space/artifacts/main/scripts/install.sh | sh
@@ -114,7 +82,7 @@ curl -fsSL https://raw.githubusercontent.com/inds-space/artifacts/main/scripts/i
 irm https://raw.githubusercontent.com/inds-space/artifacts/main/scripts/install.ps1 | iex
 ```
 
-Point the CLI at your instance and give it the service token:
+Point it at your instance and provide a Cloudflare Access service token:
 
 ```bash
 export ARTIFACTS_BASE_URL=https://artifacts.example.com
@@ -122,7 +90,7 @@ export ARTIFACTS_ACCESS_CLIENT_ID=...
 export ARTIFACTS_ACCESS_CLIENT_SECRET=...
 ```
 
-Or write them to `%APPDATA%\artifacts\config.json` (Windows) / `$XDG_CONFIG_HOME/artifacts/config.json` using the shape in `config.example.json`.
+Examples:
 
 ```bash
 artifacts publish report.html --agent chatgpt --type report --name weekly-report
@@ -135,11 +103,28 @@ artifacts type add research-brief
 artifacts update
 ```
 
-`artifacts update` replaces the installed executable with the latest GitHub release. Normal use checks for a new release at most once a day and prints a notice; a failed check never blocks the command you asked for.
+## Self-hosting
+
+You need Cloudflare Workers, D1, R2, and Access.
+
+```bash
+pnpm install
+wrangler d1 create artifacts-db
+wrangler r2 bucket create artifacts-storage
+```
+
+Edit `wrangler.jsonc` with your hostname, `PUBLIC_BASE_URL`, and D1 database ID, then deploy and apply migrations:
+
+```bash
+wrangler deploy
+wrangler d1 migrations apply artifacts-db --remote
+```
+
+Put a Cloudflare Access application in front of the hostname. Add your identity for browser/OAuth access and optionally a service token for the CLI.
 
 ## Agent skill
 
-`skills/artifacts/` is a skill definition that teaches an agent when and how to publish. Install it into Claude Code, Codex, and Antigravity with:
+`skills/artifacts/` teaches agents when and how to publish artifacts.
 
 ```powershell
 pwsh scripts/install-skill.ps1
@@ -156,7 +141,7 @@ pnpm test
 pnpm run build
 ```
 
-Local requests need a test `Cf-Access-Jwt-Assertion` header, since there is no Access layer in front of `wrangler dev`.
+Local requests need a test `Cf-Access-Jwt-Assertion` header because there is no Access layer in front of `wrangler dev`.
 
 ## Retention
 
