@@ -1,8 +1,8 @@
 # Artifacts
 
-Self-hosted, Access-protected publishing for browser-renderable agent artifacts.
+Self-hosted, Access-protected publishing for browser-renderable agent artifacts, with a remote MCP server built in.
 
-Coding agents produce deliverables — plans, reports, diagrams, prototypes — that are awkward to hand back through a terminal. Artifacts gives them a `publish` command and a stable URL you own, instead of scattering work onto someone else's platform.
+Coding agents produce deliverables — plans, reports, diagrams, prototypes — that are awkward to hand back through a terminal. Artifacts gives them a CLI, a standard MCP endpoint, and stable URLs you own instead of scattering work onto someone else's platform.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/inds-space/artifacts)
 
@@ -10,6 +10,12 @@ Canonical URLs look like:
 
 ```text
 https://artifacts.example.com/<agent>/<artifact-type>/<name>
+```
+
+The MCP endpoint is:
+
+```text
+https://artifacts.example.com/mcp
 ```
 
 One Cloudflare Worker, D1 for metadata, R2 for objects. Re-publishing creates an immutable version behind a stable canonical URL. Deletes are immediate at the URL and recoverable in storage for 24 hours.
@@ -39,7 +45,60 @@ wrangler deploy
 wrangler d1 migrations apply artifacts-db --remote
 ```
 
-Finally, put a Cloudflare Access application in front of the hostname. Add your own identity for browser access, and issue a **service token** for the CLI. The Worker requires either a `Cf-Access-Jwt-Assertion` header (browser sessions) or valid service-token headers on every request — it has no auth of its own.
+Finally, put a Cloudflare Access application in front of the hostname. Add your own identity for browser and OAuth access, and optionally issue a **service token** for the CLI. The Worker requires an authenticated Access identity on every request and does not implement a separate user database.
+
+## MCP
+
+Artifacts exposes a stateless Streamable HTTP MCP server at `/mcp` with these tools:
+
+- `list_artifacts`
+- `get_artifact`
+- `publish_artifact`
+- `delete_artifact`
+- `list_artifact_types`
+- `add_artifact_type`
+
+A typical MCP client only needs the URL:
+
+```json
+{
+  "mcpServers": {
+    "artifacts": {
+      "url": "https://artifacts.example.com/mcp"
+    }
+  }
+}
+```
+
+### OAuth with Cloudflare Access
+
+For normal remote MCP clients, enable **Managed OAuth** on the Cloudflare Access application protecting your Artifacts hostname.
+
+In Cloudflare Zero Trust:
+
+1. Go to **Access controls → Applications** and edit the application protecting your Artifacts hostname.
+2. Open **Advanced settings** and enable **Managed OAuth**.
+3. Enable **Dynamic Client Registration**.
+4. Enable localhost and loopback redirect URIs for desktop/IDE clients.
+5. Add the HTTPS redirect URI patterns required by any hosted MCP clients you want to support.
+6. Use a short access-token lifetime and a longer OAuth grant/session lifetime.
+
+Cloudflare Access then handles OAuth discovery, authorization-code + PKCE, refresh tokens, and policy enforcement. The Worker continues to trust the Access identity passed in `Cf-Access-Jwt-Assertion`.
+
+For example, a useful CLI/agent configuration is:
+
+```text
+Access token lifetime: 10m
+Grant session duration: 336h
+Allow localhost clients: yes
+Allow loopback clients: yes
+```
+
+Do not blindly allow arbitrary hosted redirect URIs. Add only the MCP clients you actually intend to trust.
+
+The MCP server accepts protocol versions `2026-07-28`, `2025-11-25`, `2025-06-18`, and `2025-03-26`.
+
+MCP publishing accepts UTF-8 content directly or binary content as base64. Individual MCP publish payloads are limited to 8 MiB, and inline reads are limited to 256 KiB; larger artifacts should be consumed from their canonical URL.
 
 ## CLI
 
