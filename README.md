@@ -12,6 +12,8 @@ Canonical URLs look like:
 https://artifacts.example.com/<agent>/<artifact-type>/<name>
 ```
 
+Built-in agent names are `claude`, `codex`, `antigravity`, and `chatgpt`. You can also use any custom lowercase kebab-case agent slug up to 64 characters, such as `gemini`, `local-agent`, or `research-bot`.
+
 The MCP endpoint is:
 
 ```text
@@ -57,6 +59,8 @@ Artifacts exposes a stateless Streamable HTTP MCP server at `/mcp` with these to
 - `delete_artifact`
 - `list_artifact_types`
 - `add_artifact_type`
+
+All tools that accept an `agent` use the same open agent-slug schema, so MCP clients can use the built-ins or custom agent names without server changes.
 
 A typical MCP client only needs the URL:
 
@@ -121,10 +125,11 @@ export ARTIFACTS_ACCESS_CLIENT_SECRET=...
 Or write them to `%APPDATA%\artifacts\config.json` (Windows) / `$XDG_CONFIG_HOME/artifacts/config.json` using the shape in `config.example.json`.
 
 ```bash
-artifacts publish report.html --agent codex --type report --name weekly-report
-artifacts get codex/report/weekly-report
-artifacts list --agent codex --type report
-artifacts delete codex/report/weekly-report
+artifacts publish report.html --agent chatgpt --type report --name weekly-report
+artifacts publish notes.md --agent my-local-agent --type report --name research-notes
+artifacts get chatgpt/report/weekly-report
+artifacts list --agent my-local-agent --type report
+artifacts delete chatgpt/report/weekly-report
 artifacts type list
 artifacts type add research-brief
 artifacts update
