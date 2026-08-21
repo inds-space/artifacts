@@ -65,7 +65,7 @@ describe("artifacts MCP", () => {
       result: {
         protocolVersion: "2025-06-18",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "inds-space-artifacts", version: "0.4.0" },
+        serverInfo: { name: "inds-space-artifacts", version: "0.4.1" },
       },
     });
 
@@ -77,9 +77,9 @@ describe("artifacts MCP", () => {
     expect(initialized.status).toBe(202);
   });
 
-  it("lists the native artifact tools", async () => {
+  it("lists tools with an open custom-agent schema", async () => {
     const response = await rpc("tools/list");
-    const body = await response.json<{ result: { tools: Array<{ name: string }> } }>();
+    const body = await response.json<{ result: { tools: Array<{ name: string; inputSchema: { properties?: Record<string, { enum?: string[]; pattern?: string; description?: string }> } }> } }>();
     expect(body.result.tools.map((tool) => tool.name)).toEqual([
       "list_artifacts",
       "get_artifact",
@@ -88,13 +88,19 @@ describe("artifacts MCP", () => {
       "list_artifact_types",
       "add_artifact_type",
     ]);
+    const publish = body.result.tools.find((tool) => tool.name === "publish_artifact");
+    const agent = publish?.inputSchema.properties?.agent;
+    expect(agent?.enum).toBeUndefined();
+    expect(agent?.pattern).toBeTruthy();
+    expect(agent?.description).toContain("chatgpt");
+    expect(agent?.description).toContain("Custom agent names are supported");
   });
 
-  it("publishes and reads an artifact through MCP", async () => {
+  it("publishes and reads a ChatGPT artifact through MCP", async () => {
     const published = await rpc("tools/call", {
       name: "publish_artifact",
       arguments: {
-        agent: "codex",
+        agent: "chatgpt",
         type: "plan",
         name: "mcp-test",
         contentType: "text/markdown; charset=utf-8",
@@ -107,11 +113,27 @@ describe("artifacts MCP", () => {
 
     const fetched = await rpc("tools/call", {
       name: "get_artifact",
-      arguments: { agent: "codex", type: "plan", name: "mcp-test", includeContent: true },
+      arguments: { agent: "chatgpt", type: "plan", name: "mcp-test", includeContent: true },
     }, 2);
     const fetchBody = await fetched.json<{ result: { content: Array<{ text: string }> } }>();
     expect(fetchBody.result.content[0]?.text).toContain("# MCP works");
-    expect(fetchBody.result.content[0]?.text).toContain(`${env.PUBLIC_BASE_URL}/codex/plan/mcp-test`);
+    expect(fetchBody.result.content[0]?.text).toContain(`${env.PUBLIC_BASE_URL}/chatgpt/plan/mcp-test`);
+  });
+
+  it("accepts arbitrary valid custom agent slugs", async () => {
+    const published = await rpc("tools/call", {
+      name: "publish_artifact",
+      arguments: {
+        agent: "my-local-agent",
+        type: "report",
+        name: "custom-agent-test",
+        contentType: "text/markdown; charset=utf-8",
+        content: "# custom",
+      },
+    });
+    const body = await published.json<{ result: { isError?: boolean; content: Array<{ text: string }> } }>();
+    expect(body.result.isError).not.toBe(true);
+    expect(body.result.content[0]?.text).toContain('"agent": "my-local-agent"');
   });
 
   it("keeps the existing non-MCP worker routes available", async () => {
