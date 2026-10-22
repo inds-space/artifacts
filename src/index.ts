@@ -1,3 +1,4 @@
+import { artifactUrl, parseVisibility, type Visibility } from "./visibility";
 import { AGENTS, isAgent, isRenderableContentType, NAME_PATTERN, TYPE_PATTERN, type Agent } from "./constants";
 import { json, landing, methodNotAllowed, secureHeaders } from "./http";
 
@@ -11,6 +12,7 @@ type ArtifactRow = {
   content_type: string;
   size_bytes: number | null;
   sha256: string;
+  visibility: Visibility;
   status: "active" | "deleted";
   deleted_at: string | null;
   delete_after: string | null;
@@ -56,8 +58,8 @@ function parseSlug(value: string | null): string {
   return slug;
 }
 
-function canonicalUrl(env: CloudflareBindings, agent: Agent, type: string, slug: string): string {
-  return `${env.PUBLIC_BASE_URL}/${agent}/${type}/${slug}`;
+function canonicalUrl(env: CloudflareBindings, row: ArtifactRow): string {
+  return artifactUrl(env.PUBLIC_BASE_URL, row);
 }
 
 function objectKey(id: string, version: number): string {
@@ -74,12 +76,13 @@ function artifactJson(row: ArtifactRow, env: CloudflareBindings) {
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     sha256: row.sha256,
+    visibility: row.visibility,
     status: row.status,
     deletedAt: row.deleted_at,
     deleteAfter: row.delete_after,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    url: canonicalUrl(env, row.agent, row.artifact_type, row.slug),
+    url: canonicalUrl(env, row),
   };
 }
 
@@ -111,9 +114,15 @@ async function handlePublish(request: Request, env: CloudflareBindings): Promise
   const agent = parseAgent(url.searchParams.get("agent"));
   const type = parseType(url.searchParams.get("type"));
   const slug = parseSlug(url.searchParams.get("name"));
+  let requestedVisibility: Visibility | undefined;
+  if (url.searchParams.has("visibility")) {
+    try { requestedVisibility = parseVisibility(url.searchParams.get("visibility")); }
+    catch { throw new HttpError(400, "visibility must be private or public"); }
+  }
   await requireKnownType(env, type);
   const upload = parseUpload(request);
   const existing = await getArtifact(env, agent, type, slug, true);
+  const visibility = requestedVisibility ?? existing?.visibility ?? "private";
   const id = existing?.id ?? `art_${crypto.randomUUID().replaceAll("-", "")}`;
   const version = (existing?.current_version ?? 0) + 1;
   const key = objectKey(id, version);
@@ -128,15 +137,15 @@ async function handlePublish(request: Request, env: CloudflareBindings): Promise
   try {
     if (!existing) {
       await env.DB.batch([
-        env.DB.prepare("INSERT INTO artifacts (id, agent, artifact_type, slug, current_version, current_object_key, content_type, size_bytes, sha256, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)")
-          .bind(id, agent, type, slug, version, key, upload.contentType, upload.sizeBytes, upload.sha256, now, now),
+        env.DB.prepare("INSERT INTO artifacts (id, agent, artifact_type, slug, current_version, current_object_key, content_type, size_bytes, sha256, visibility, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)")
+          .bind(id, agent, type, slug, version, key, upload.contentType, upload.sizeBytes, upload.sha256, visibility, now, now),
         env.DB.prepare("INSERT INTO artifact_versions (artifact_id, version, object_key, content_type, size_bytes, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
           .bind(id, version, key, upload.contentType, upload.sizeBytes, upload.sha256, now),
       ]);
     } else {
       const results = await env.DB.batch([
-        env.DB.prepare("UPDATE artifacts SET current_version = ?, current_object_key = ?, content_type = ?, size_bytes = ?, sha256 = ?, status = 'active', deleted_at = NULL, delete_after = NULL, updated_at = ? WHERE id = ? AND current_version = ?")
-          .bind(version, key, upload.contentType, upload.sizeBytes, upload.sha256, now, id, existing.current_version),
+        env.DB.prepare("UPDATE artifacts SET current_version = ?, current_object_key = ?, content_type = ?, size_bytes = ?, sha256 = ?, status = 'active', deleted_at = NULL, delete_after = NULL, updated_at = ?, visibility = ? WHERE id = ? AND current_version = ?")
+          .bind(version, key, upload.contentType, upload.sizeBytes, upload.sha256, now, visibility, id, existing.current_version),
         env.DB.prepare("INSERT INTO artifact_versions (artifact_id, version, object_key, content_type, size_bytes, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
           .bind(id, version, key, upload.contentType, upload.sizeBytes, upload.sha256, now),
       ]);
@@ -165,6 +174,11 @@ async function handleList(url: URL, env: CloudflareBindings): Promise<Response> 
     clauses.push("artifact_type = ?");
     values.push(parseType(typeValue));
   }
+  if (url.searchParams.has("visibility")) {
+    try { values.push(parseVisibility(url.searchParams.get("visibility"))); }
+    catch { throw new HttpError(400, "visibility must be private or public"); }
+    clauses.push("visibility = ?");
+  }
   const query = `SELECT * FROM artifacts WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC LIMIT 500`;
   const result = await env.DB.prepare(query).bind(...values).all<ArtifactRow>();
   return json({ artifacts: result.results.map((row) => artifactJson(row, env)) });
@@ -185,7 +199,7 @@ async function handleDelete(env: CloudflareBindings, agent: Agent, type: string,
   const deleteAfter = new Date(deletedAt.getTime() + 86_400_000);
   await env.DB.prepare("UPDATE artifacts SET status = 'deleted', deleted_at = ?, delete_after = ?, updated_at = ? WHERE id = ? AND status = 'active'")
     .bind(deletedAt.toISOString(), deleteAfter.toISOString(), deletedAt.toISOString(), row.id).run();
-  return json({ deleted: true, recoverableUntil: deleteAfter.toISOString(), url: canonicalUrl(env, agent, type, slug) });
+  return json({ deleted: true, recoverableUntil: deleteAfter.toISOString(), url: canonicalUrl(env, row) });
 }
 
 async function handleTypes(request: Request, env: CloudflareBindings): Promise<Response> {
@@ -201,9 +215,9 @@ async function handleTypes(request: Request, env: CloudflareBindings): Promise<R
   return methodNotAllowed(["GET", "POST"]);
 }
 
-async function serveArtifact(request: Request, env: CloudflareBindings, agent: Agent, type: string, slug: string): Promise<Response> {
+async function serveArtifact(request: Request, env: CloudflareBindings, agent: Agent, type: string, slug: string, publicOnly = false): Promise<Response> {
   const row = await getArtifact(env, agent, type, slug);
-  if (!row) throw new HttpError(404, "Artifact not found");
+  if (!row || (publicOnly && row.visibility !== "public")) throw new HttpError(404, "Artifact not found");
   const etag = `"${row.sha256}"`;
   if (request.headers.get("If-None-Match") === etag) return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "no-store, no-transform" } });
   const object = await env.STORAGE.get(row.current_object_key);
@@ -224,9 +238,19 @@ function landingPage(env: CloudflareBindings): Response {
 }
 
 async function route(request: Request, env: CloudflareBindings): Promise<Response> {
-  if (!hasAccessIdentity(request)) return json({ error: "Cloudflare Access authentication required" }, { status: 401 });
   const url = new URL(request.url);
   const segments = decodePath(url.pathname);
+  // Only this exact content route bypasses Access. Never expose API, MCP, or history.
+  if (url.pathname.startsWith("/public/")) {
+    if (segments.length !== 4 || segments[0] !== "public") throw new HttpError(404, "Not found");
+    const agent = parseAgent(segments[1] ?? null);
+    const type = parseType(segments[2] ?? null);
+    const slug = parseSlug(segments[3] ?? null);
+    return request.method === "GET" || request.method === "HEAD"
+      ? serveArtifact(request, env, agent, type, slug, true)
+      : methodNotAllowed(["GET", "HEAD"]);
+  }
+  if (!hasAccessIdentity(request)) return json({ error: "Cloudflare Access authentication required" }, { status: 401 });
   if (segments.length === 0) return request.method === "GET" ? landingPage(env) : methodNotAllowed(["GET"]);
   if (segments.join("/") === "api/v1/health") return request.method === "GET" ? json({ ok: true, service: "artifacts" }) : methodNotAllowed(["GET"]);
   if (segments.join("/") === "api/v1/types") return handleTypes(request, env);

@@ -1,6 +1,6 @@
 {
   "name": "@inds-space/artifacts",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
@@ -14,9 +14,10 @@
     "deploy": "pnpm run db:migrate:remote && wrangler deploy",
     "dev": "wrangler dev",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "vitest run && bun test cli/test",
     "test:watch": "vitest",
-    "types": "wrangler types --env-interface CloudflareBindings"
+    "types": "wrangler types --env-interface CloudflareBindings",
+    "test:cli": "bun test cli/test"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.20.3",

@@ -1,15 +1,18 @@
 # Artifacts
 
-Self-hosted, Access-protected publishing for browser-renderable agent artifacts, with **MCP and CLI as first-class interfaces**.
+Self-hosted private and public publishing for browser-renderable agent artifacts, with **MCP and CLI as first-class interfaces**.
 
 Coding agents produce plans, reports, diagrams, prototypes, and other deliverables that are awkward to hand back through a terminal. Artifacts gives them a standard remote MCP server, a CLI, and stable URLs you own.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/inds-space/artifacts)
 
+For agent-led installation, user configuration, and new deployments, see [Set up Artifacts](docs/setup.md). CLI `artifacts setup --url <instance>` configures the client and prints MCP connection settings; `artifacts doctor --json` verifies both interfaces.
+
 Canonical URLs:
 
 ```text
-https://artifacts.example.com/<agent>/<artifact-type>/<name>
+Private: https://artifacts.example.com/<agent>/<artifact-type>/<name>
+Public:  https://artifacts.example.com/public/<agent>/<artifact-type>/<name>
 ```
 
 MCP endpoint:
@@ -70,6 +73,22 @@ The MCP server accepts protocol versions `2026-07-28`, `2025-11-25`, `2025-06-18
 
 MCP publishing accepts UTF-8 content directly or binary content as base64. Publish payloads are limited to 8 MiB and inline reads to 256 KiB; larger artifacts should be consumed through their canonical URL.
 
+## Public artifacts
+
+MCP and CLI ship public publishing together. In MCP `publish_artifact`, set `visibility: "public"`. In CLI, use `--public` or `--visibility public`:
+
+```bash
+artifacts publish report.html --agent codex --type report --name shared-report --public
+artifacts list --visibility public --json
+artifacts publish report.html --agent codex --type report --name shared-report --private
+```
+
+New artifacts and existing records default to private. Re-publishing preserves visibility when omitted. Explicit `private` immediately revokes the public URL. Public content is available anonymously through GET/HEAD at `/public/<agent>/<type>/<name>`; metadata, version history, publishing, deletion, CLI API, and MCP still require Access. Delete also removes public access immediately. Listings and metadata include `visibility` and the canonical URL; MCP `list_artifacts` supports the same visibility filter.
+
+REST publishing accepts `visibility=public|private` on `POST /api/v1/artifacts`; authenticated listing accepts the same query filter. Invalid visibility is rejected.
+
+Deploy migration `0003_artifact_visibility.sql` before the Worker. Configure a separate Access application for `artifacts.<domain>/public/*` with an Everyone Bypass policy. Keep the root application and its OAuth/service-token policies in place. See [setup](docs/setup.md) for the complete workflow.
+
 ## CLI
 
 The CLI exposes the same artifact model for shell scripts and agents that prefer command execution.
@@ -113,18 +132,21 @@ wrangler d1 create artifacts-db
 wrangler r2 bucket create artifacts-storage
 ```
 
-Edit `wrangler.jsonc` with your hostname, `PUBLIC_BASE_URL`, and D1 database ID, then deploy and apply migrations:
+Edit `wrangler.jsonc` with your hostname, `PUBLIC_BASE_URL`, and D1 database ID, then apply migrations and deploy:
 
 ```bash
-wrangler deploy
-wrangler d1 migrations apply artifacts-db --remote
+pnpm run deploy
 ```
 
-Put a Cloudflare Access application in front of the hostname. Add your identity for browser/OAuth access and optionally a service token for the CLI.
+Put a Cloudflare Access application in front of the hostname. Add your identity for browser/OAuth access and a Service Auth policy scoped to a service token for the CLI. Add a separate Access application for `/public/*` with an Everyone Bypass policy. Follow the [setup guide](skills/artifacts/references/setup.md) for configuration and verification.
 
 ## Agent skill
 
 `skills/artifacts/` teaches agents when and how to publish artifacts.
+
+```bash
+sh scripts/install-skill.sh
+```
 
 ```powershell
 pwsh scripts/install-skill.ps1

@@ -65,7 +65,7 @@ describe("artifacts MCP", () => {
       result: {
         protocolVersion: "2025-06-18",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "inds-space-artifacts", version: "0.4.1" },
+        serverInfo: { name: "inds-space-artifacts", version: "0.5.0" },
       },
     });
 
@@ -142,5 +142,48 @@ describe("artifacts MCP", () => {
     }));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true, service: "artifacts" });
+  });
+});
+
+describe("MCP public publishing", () => {
+  beforeEach(resetBindings);
+
+  async function call(name: string, args: Record<string, unknown>) {
+    const response = await rpc("tools/call", { name, arguments: args });
+    return response.json<{ result: { isError?: boolean; content: Array<{ text: string }> } }>();
+  }
+
+  it("advertises visibility on publish and list", async () => {
+    const response = await rpc("tools/list");
+    const body = await response.json<{ result: { tools: Array<{ name: string; inputSchema: { properties: Record<string, unknown> } }> } }>();
+    for (const name of ["publish_artifact", "list_artifacts"]) {
+      expect(body.result.tools.find((tool) => tool.name === name)?.inputSchema.properties.visibility).toMatchObject({ enum: ["private", "public"] });
+    }
+  });
+
+  it("publishes, replaces, filters, reads, and revokes public artifacts using MCP", async () => {
+    const identity = { agent: "codex", type: "report", name: "mcp-public" };
+    const upload = { ...identity, contentType: "text/html", content: "<h1>MCP public</h1>" };
+    const created = await call("publish_artifact", { ...upload, visibility: "public" });
+    expect(created.result.isError).not.toBe(true);
+    const publicUrl = `${env.PUBLIC_BASE_URL}/public/codex/report/mcp-public`;
+    expect(JSON.parse(created.result.content[0]?.text ?? "")).toMatchObject({ artifact: { visibility: "public", url: publicUrl } });
+    expect(await (await dispatch(new Request(publicUrl))).text()).toBe(upload.content);
+    const replaced = await call("publish_artifact", upload);
+    expect(JSON.parse(replaced.result.content[0]?.text ?? "")).toMatchObject({ artifact: { visibility: "public", version: 2 } });
+    const fetched = await call("get_artifact", { ...identity, includeContent: true });
+    expect(JSON.parse(fetched.result.content[0]?.text ?? "")).toMatchObject({ artifact: { visibility: "public", url: publicUrl }, content: upload.content });
+    const listed = await call("list_artifacts", { visibility: "public" });
+    expect(JSON.parse(listed.result.content[0]?.text ?? "")).toMatchObject({ artifacts: [{ visibility: "public" }] });
+    const invalid = await call("publish_artifact", { ...upload, visibility: true });
+    expect(invalid.result.isError).toBe(true);
+    expect((await call("list_artifacts", { visibility: "invalid" })).result.isError).toBe(true);
+    await call("publish_artifact", { ...upload, visibility: "private" });
+    expect((await dispatch(new Request(publicUrl))).status).toBe(404);
+    const privateList = await call("list_artifacts", { visibility: "public" });
+    expect(JSON.parse(privateList.result.content[0]?.text ?? "")).toEqual({ artifacts: [] });
+    await call("publish_artifact", { ...upload, visibility: "public" });
+    await call("delete_artifact", identity);
+    expect((await dispatch(new Request(publicUrl))).status).toBe(404);
   });
 });

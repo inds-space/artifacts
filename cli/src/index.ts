@@ -6,7 +6,7 @@ import { basename, dirname, join } from "node:path";
 
 export {};
 
-const VERSION = "0.4.1";
+const VERSION = "0.5.0";
 const GITHUB_REPOSITORY = "inds-space/artifacts";
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AGENTS = ["claude", "codex", "antigravity", "chatgpt"] as const;
@@ -14,7 +14,7 @@ const AGENT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
 type Config = { baseUrl?: string; accessClientId?: string; accessClientSecret?: string };
 type Identity = { agent: string; type: string; name: string };
-type Artifact = { agent: string; type: string; name: string; version: number; updatedAt: string; url: string };
+type Artifact = { agent: string; type: string; name: string; version: number; visibility: "private" | "public"; updatedAt: string; url: string };
 type ArtifactEnvelope = { artifact: Artifact; versions?: unknown[] };
 type UpdateCheckState = { checkedAt: number; latest?: string };
 
@@ -27,9 +27,11 @@ function help(): void {
   console.log(`Artifacts CLI v${VERSION}
 
 Usage:
-  artifacts publish <file> --agent <agent> --type <type> --name <slug>
+  artifacts setup --url <https://artifacts.your-domain> [--save-credentials] [--skip-check]
+  artifacts doctor [--json]
+  artifacts publish <file> --agent <agent> --type <type> --name <slug> [--visibility private|public | --public | --private]
   artifacts get <agent>/<type>/<name> [--json | --download <file>]
-  artifacts list [--agent <agent>] [--type <type>] [--json]
+  artifacts list [--agent <agent>] [--type <type>] [--visibility private|public] [--json]
   artifacts delete <agent>/<type>/<name>
   artifacts type list [--json]
   artifacts type add <name>
@@ -37,6 +39,8 @@ Usage:
 
 Built-in agents: ${AGENTS.join(", ")}
 Custom agents: any lowercase kebab-case slug up to 64 characters
+Visibility: new artifacts default to private; replacements preserve it when omitted.
+Public artifacts are readable without authentication at /public/<agent>/<type>/<name>.
 
 Instance:
   ARTIFACTS_BASE_URL (or "baseUrl" in the config file)
@@ -151,6 +155,65 @@ async function api<T>(config: Required<Config>, path: string, init: RequestInit 
   return body as T;
 }
 
+function validateBaseUrl(value: string): string {
+  let url: URL;
+  try { url = new URL(value); } catch { fail("Instance URL must be an absolute HTTPS URL"); }
+  if (url.username || url.password || url.search || url.hash || url.pathname !== "/") fail("Instance URL must contain only the origin, for example https://artifacts.example.com");
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) fail("Instance URL must use HTTPS (HTTP is allowed for local development)");
+  return url.origin;
+}
+
+async function doctor(config: Required<Config>, jsonOutput = false): Promise<void> {
+  const health = await api<{ ok: boolean }>(config, "/api/v1/health");
+  if (!health.ok) fail("Instance health check failed");
+  const tools = await api<{ result?: { tools?: Array<{ name: string; inputSchema?: { properties?: Record<string, unknown> } }> }; error?: { message: string } }>(config, "/mcp", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  const publish = tools.result?.tools?.find((tool) => tool.name === "publish_artifact");
+  if (!publish?.inputSchema?.properties?.visibility) fail("MCP public publishing is unavailable; update the Artifacts server");
+  const result = { ok: true, baseUrl: config.baseUrl, cli: "ok", mcp: "ok", publicPublishing: "ok" };
+  console.log(jsonOutput ? JSON.stringify(result) : `Connected to ${config.baseUrl}. CLI and MCP are ready, including public publishing.`);
+}
+
+async function setup(args: string[]): Promise<void> {
+  const path = configPath();
+  let existing: Config = {};
+  if (await Bun.file(path).exists()) {
+    try { existing = await Bun.file(path).json() as Config; } catch { fail(`Invalid JSON in ${path}`); }
+  }
+  const input = valueAfter(args, "--url") ?? process.env.ARTIFACTS_BASE_URL ?? existing.baseUrl;
+  if (!input) fail("Run artifacts setup --url https://artifacts.<your-domain>. For a new instance, see https://github.com/inds-space/artifacts/blob/main/docs/setup.md");
+  const baseUrl = validateBaseUrl(input);
+  const changedInstance = existing.baseUrl !== undefined && existing.baseUrl !== baseUrl;
+  const clientId = process.env.ARTIFACTS_ACCESS_CLIENT_ID ?? (!changedInstance ? existing.accessClientId : undefined);
+  const clientSecret = process.env.ARTIFACTS_ACCESS_CLIENT_SECRET ?? (!changedInstance ? existing.accessClientSecret : undefined);
+  if (Boolean(clientId) !== Boolean(clientSecret)) fail("Provide both ARTIFACTS_ACCESS_CLIENT_ID and ARTIFACTS_ACCESS_CLIENT_SECRET");
+  const saveCredentials = args.includes("--save-credentials");
+  if (saveCredentials && (!clientId || !clientSecret)) fail("--save-credentials requires both Access credentials in the environment");
+  // Verify before replacing a working configuration. MCP-only setup can skip CLI authentication.
+  if (!args.includes("--skip-check")) {
+    if (!clientId || !clientSecret) fail("Set ARTIFACTS_ACCESS_CLIENT_ID and ARTIFACTS_ACCESS_CLIENT_SECRET, or use --skip-check for MCP-only setup");
+    await doctor({ baseUrl, accessClientId: clientId, accessClientSecret: clientSecret });
+  }
+  const stored: Config = { ...existing, baseUrl };
+  if (changedInstance) { delete stored.accessClientId; delete stored.accessClientSecret; }
+  if (saveCredentials) { stored.accessClientId = clientId; stored.accessClientSecret = clientSecret; }
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  // Use an exclusive temporary file so existing permissions or symlinks cannot expose credentials.
+  const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(stored, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+    await rename(temporary, path);
+  } finally { await rm(temporary, { force: true }); }
+  console.log(`Saved configuration to ${path}`);
+  console.log("MCP client configuration (uses Cloudflare Access OAuth; no service token in this JSON):");
+  console.log(JSON.stringify({ mcpServers: { artifacts: { url: `${baseUrl}/mcp` } } }, null, 2));
+  if (args.includes("--skip-check")) console.log("Connection was not verified. Run artifacts doctor once CLI credentials are configured.");
+  console.log("Publish privately: artifacts publish report.html --agent codex --type report --name my-report");
+  console.log("Publish publicly: artifacts publish report.html --agent codex --type report --name my-report --public");
+}
+
 function valueAfter(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
   return index >= 0 ? args[index + 1] : undefined;
@@ -187,7 +250,22 @@ async function sha256(path: string): Promise<string> {
   return hasher.digest("hex");
 }
 
+function visibilityOption(args: string[], allowAliases = false): "private" | "public" | undefined {
+  const flags = ["--visibility", ...(allowAliases ? ["--public", "--private"] : [])];
+  const selected = args.filter((arg) => flags.includes(arg));
+  if (selected.length > 1) fail("Choose only one visibility option");
+  if (args.includes("--visibility")) {
+    const value = valueAfter(args, "--visibility");
+    if (value !== "private" && value !== "public") fail("--visibility must be private or public");
+    return value;
+  }
+  if (allowAliases && args.includes("--public")) return "public";
+  if (allowAliases && args.includes("--private")) return "private";
+  return undefined;
+}
+
 async function publish(args: string[], config: Required<Config>): Promise<void> {
+  const visibility = visibilityOption(args, true);
   const path = args[0];
   if (!path || path.startsWith("-")) fail("publish requires a file path");
   const file = Bun.file(path);
@@ -205,6 +283,7 @@ async function publish(args: string[], config: Required<Config>): Promise<void> 
   headers.set("X-Artifact-SHA256", digest);
   headers.set("Accept", "application/json");
   const query = new URLSearchParams({ agent, type, name });
+  if (visibility) query.set("visibility", visibility);
   const response = await fetch(`${config.baseUrl}/api/v1/artifacts?${query}`, { method: "POST", headers, body: file.stream() });
   const responseType = response.headers.get("Content-Type") ?? "";
   if (!responseType.includes("application/json")) fail(`Unexpected ${String(response.status)} response; verify Cloudflare Access policy and credentials`);
@@ -216,12 +295,14 @@ async function publish(args: string[], config: Required<Config>): Promise<void> 
 
 function printTable(items: Artifact[]): void {
   if (!items.length) { console.log("No artifacts found."); return; }
-  const rows = items.map((x) => ({ AGENT:x.agent, TYPE:x.type, NAME:x.name, VERSION:`v${String(x.version)}`, UPDATED:x.updatedAt, URL:x.url }));
+  const rows = items.map((x) => ({ AGENT:x.agent, TYPE:x.type, NAME:x.name, VERSION:`v${String(x.version)}`, VISIBILITY:x.visibility, UPDATED:x.updatedAt, URL:x.url }));
   console.table(rows);
 }
 
 async function list(args: string[], config: Required<Config>): Promise<void> {
   const query = new URLSearchParams();
+  const visibility = visibilityOption(args);
+  if (visibility) query.set("visibility", visibility);
   const agent = valueAfter(args, "--agent");
   const type = valueAfter(args, "--type");
   if (agent) query.set("agent", agentName(agent));
@@ -375,9 +456,11 @@ const [command, ...args] = Bun.argv.slice(2);
 if (!command || command === "help" || command === "--help" || command === "-h") { help(); await notifyUpdateAvailable(); process.exit(0); }
 if (command === "--version" || command === "-v") { console.log(VERSION); await notifyUpdateAvailable(); process.exit(0); }
 if (command === "update") { await update(args); process.exit(0); }
+if (command === "setup") { await setup(args); process.exit(0); }
 await notifyUpdateAvailable();
 const config = await loadConfig();
 switch (command) {
+  case "doctor": await doctor(config, args.includes("--json")); break;
   case "publish": await publish(args, config); break;
   case "get": await get(args, config); break;
   case "list": await list(args, config); break;

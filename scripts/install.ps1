@@ -14,4 +14,4 @@ if (($userPath -split ";") -notcontains $installDir) {
 }
 
 Write-Output "Installed artifacts to $destination"
-Write-Output "Set ARTIFACTS_BASE_URL, ARTIFACTS_ACCESS_CLIENT_ID, and ARTIFACTS_ACCESS_CLIENT_SECRET, then run: artifacts --help"
+Write-Output "Provide ARTIFACTS_ACCESS_CLIENT_ID and ARTIFACTS_ACCESS_CLIENT_SECRET privately, then run: artifacts setup --url https://artifacts.<your-domain>"

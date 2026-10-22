@@ -142,3 +142,65 @@ describe("artifacts Worker", () => {
     expect(row?.delete_after).toBeTruthy();
   });
 });
+
+describe("public artifacts", () => {
+  async function publishVisible(visibility?: string, body = "<h1>Public test</h1>") {
+    const query = new URLSearchParams({ agent: "custom-agent", type: "report", name: "visibility-test" });
+    if (visibility !== undefined) query.set("visibility", visibility);
+    return dispatch(new Request(`http://localhost/api/v1/artifacts?${query}`, {
+      method: "POST", headers: { ...ACCESS_HEADERS, "Content-Type": "text/html", "X-Artifact-SHA256": await digest(body) }, body,
+    }));
+  }
+  const publicUrl = "http://localhost/public/custom-agent/report/visibility-test";
+
+  it("defaults to private, requires explicit public opt-in, and never exposes private content or ETags", async () => {
+    await resetBindings();
+    const created = await publishVisible();
+    await expect(created.json()).resolves.toMatchObject({ artifact: { visibility: "private" } });
+    const response = await dispatch(new Request(publicUrl, { headers: { "If-None-Match": `"${await digest("<h1>Public test</h1>")}"` } }));
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain("<h1>");
+    expect((await dispatch(new Request("http://localhost/custom-agent/report/visibility-test"))).status).toBe(401);
+    expect((await publishVisible("invalid")).status).toBe(400);
+  });
+
+  it("serves GET, HEAD, and conditional reads without Access and revokes immediately", async () => {
+    await resetBindings();
+    const created = await publishVisible("public");
+    await expect(created.json()).resolves.toMatchObject({ artifact: { visibility: "public", url: `${env.PUBLIC_BASE_URL}/public/custom-agent/report/visibility-test` } });
+    const viewed = await dispatch(new Request(publicUrl));
+    expect(viewed.status).toBe(200);
+    expect(viewed.headers.get("Cache-Control")).toBe("no-store, no-transform");
+    expect(viewed.headers.get("Content-Security-Policy")).toContain("connect-src 'none'");
+    await expect(viewed.text()).resolves.toBe("<h1>Public test</h1>");
+    const head = await dispatch(new Request(publicUrl, { method: "HEAD" }));
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+    const etag = head.headers.get("ETag") ?? "";
+    expect((await dispatch(new Request(publicUrl, { headers: { "If-None-Match": etag } }))).status).toBe(304);
+    expect((await dispatch(new Request(publicUrl, { method: "POST", body: "tamper" }))).status).toBe(405);
+    await publishVisible(undefined, "<h1>Replacement</h1>");
+    await expect((await dispatch(new Request(publicUrl))).text()).resolves.toBe("<h1>Replacement</h1>");
+    const filtered = await dispatch(new Request("http://localhost/api/v1/artifacts?visibility=public", { headers: ACCESS_HEADERS }));
+    await expect(filtered.json()).resolves.toMatchObject({ artifacts: [{ visibility: "public" }] });
+    await publishVisible("private");
+    expect((await dispatch(new Request(publicUrl, { headers: { "If-None-Match": etag } }))).status).toBe(404);
+    expect((await dispatch(new Request(publicUrl, { headers: ACCESS_HEADERS }))).status).toBe(404);
+  });
+
+  it("removes deleted public artifacts and keeps management, history, and malformed routes protected", async () => {
+    await resetBindings();
+    await publishVisible("public");
+    const deleted = await dispatch(new Request("http://localhost/api/v1/artifacts/custom-agent/report/visibility-test", { method: "DELETE", headers: ACCESS_HEADERS }));
+    await expect(deleted.json()).resolves.toMatchObject({ deleted: true, url: `${env.PUBLIC_BASE_URL}/public/custom-agent/report/visibility-test` });
+    expect((await dispatch(new Request(publicUrl))).status).toBe(404);
+    await publishVisible();
+    expect((await dispatch(new Request(publicUrl))).status).toBe(200); // restore preserves explicit visibility
+    for (const path of ["/api/v1/artifacts", "/api/v1/types", "/api/v1/artifacts/custom-agent/report/visibility-test"]) {
+      expect((await dispatch(new Request(`http://localhost${path}`))).status).toBe(401);
+    }
+    for (const path of ["/public/api/v1/artifacts", "/public/mcp", "/public/custom-agent/report/visibility-test/versions/1", "/public/custom-agent%2Freport/report/visibility-test"]) {
+      expect((await dispatch(new Request(`http://localhost${path}`))).status).not.toBe(200);
+    }
+  });
+});
