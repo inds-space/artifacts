@@ -30,10 +30,6 @@ export function isRenderableContentType(value: string): boolean {
   const mediaType = value.split(";", 1)[0]?.trim().toLowerCase() ?? "";
   return (
     mediaType === "text/html" ||
-    mediaType === "text/markdown" ||
-    mediaType === "application/pdf" ||
-    mediaType.startsWith("image/") ||
-    mediaType.startsWith("audio/") ||
-    mediaType.startsWith("video/")
+    mediaType === "text/markdown"
   );
 }

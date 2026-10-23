@@ -25,7 +25,9 @@ Built-in agents are `claude`, `codex`, `antigravity`, and `chatgpt`. Any lowerca
 
 One Cloudflare Worker serves the REST API, canonical artifact URLs, and MCP endpoint. D1 stores metadata and R2 stores immutable artifact versions. Re-publishing creates a new version behind the same canonical URL; deletes are immediate at the URL and recoverable in storage for 24 hours.
 
-Uploads are restricted to HTML, PDF, Markdown, images, audio, and video.
+Uploads are restricted to HTML and Markdown. Publish downloadable documents, PDFs, images, audio, video, and other binary files to your CDN instead.
+
+Markdown is rendered as a GitHub-style page with tables, task lists, strikethrough, fenced code blocks, heading anchors, and automatic light/dark styling. The original Markdown remains available through CLI `get --download`, requests with `Accept: text/markdown`, or MCP `get_artifact` with `includeContent: true`. Canonical URLs are extensionless: never append `.html` or `.md`.
 
 ## MCP
 
@@ -71,7 +73,7 @@ Cloudflare Access handles OAuth discovery, authorization-code + PKCE, refresh to
 
 The MCP server accepts protocol versions `2026-07-28`, `2025-11-25`, `2025-06-18`, and `2025-03-26`.
 
-MCP publishing accepts UTF-8 content directly or binary content as base64. Publish payloads are limited to 8 MiB and inline reads to 256 KiB; larger artifacts should be consumed through their canonical URL.
+MCP publishing accepts HTML and Markdown as UTF-8 text or base64-encoded UTF-8 bytes. Publish payloads are limited to 8 MiB and inline reads to 256 KiB; larger artifacts should be consumed through their canonical URL.
 
 ## Public artifacts
 

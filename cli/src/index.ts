@@ -231,17 +231,11 @@ function identity(value: string | undefined): Identity {
   return { agent: agentName(agent), type, name };
 }
 
-function contentTypeFor(path: string, detected: string): string {
+function contentTypeFor(path: string): string {
   const extension = path.toLowerCase().split(".").pop();
-  const types: Record<string, string> = {
-    html: "text/html; charset=utf-8", htm: "text/html; charset=utf-8", txt: "text/plain; charset=utf-8",
-    md: "text/markdown; charset=utf-8", css: "text/css; charset=utf-8", js: "application/javascript; charset=utf-8",
-    mjs: "application/javascript; charset=utf-8", json: "application/json; charset=utf-8", xml: "application/xml; charset=utf-8",
-    svg: "image/svg+xml", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
-    avif: "image/avif", pdf: "application/pdf", mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg",
-    mp4: "video/mp4", webm: "video/webm", wasm: "application/wasm",
-  };
-  return types[extension ?? ""] ?? detected;
+  if (extension === "html" || extension === "htm") return "text/html; charset=utf-8";
+  if (extension === "md" || extension === "markdown") return "text/markdown; charset=utf-8";
+  return fail("Only HTML and Markdown files can be published; upload other files to your CDN");
 }
 
 async function sha256(path: string): Promise<string> {
@@ -274,8 +268,9 @@ async function publish(args: string[], config: Required<Config>): Promise<void> 
   const type = valueAfter(args, "--type");
   const name = valueAfter(args, "--name");
   if (!agentValue || !type || !name) fail("publish requires --agent, --type, and --name");
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name)) fail("Artifact name must be extensionless lowercase kebab-case (no .html or .md)");
   const agent = agentName(agentValue);
-  const contentType = contentTypeFor(path, file.type);
+  const contentType = contentTypeFor(path);
   const digest = await sha256(path);
   const headers = authHeaders(config);
   headers.set("Content-Type", contentType);
@@ -317,7 +312,9 @@ async function get(args: string[], config: Required<Config>): Promise<void> {
   const body = await api<ArtifactEnvelope>(config, path);
   const output = valueAfter(args, "--download");
   if (output) {
-    const response = await fetch(body.artifact.url, { headers: authHeaders(config) });
+    const headers = authHeaders(config);
+    headers.set("Accept", "text/markdown");
+    const response = await fetch(body.artifact.url, { headers });
     if (!response.ok) fail(`Download failed with HTTP ${String(response.status)}`);
     await Bun.write(output, response);
     console.log(output);

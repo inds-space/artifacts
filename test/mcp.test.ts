@@ -120,6 +120,25 @@ describe("artifacts MCP", () => {
     expect(fetchBody.result.content[0]?.text).toContain(`${env.PUBLIC_BASE_URL}/chatgpt/plan/mcp-test`);
   });
 
+  it("rejects non-document formats and filename extensions through MCP", async () => {
+    for (const contentType of ["application/pdf", "image/png", "audio/mpeg", "video/mp4", "application/octet-stream"]) {
+      const response = await rpc("tools/call", { name: "publish_artifact", arguments: {
+        agent: "codex", type: "report", name: "rejected", contentType, content: "bytes",
+      } });
+      const body = await response.json<{ result: { isError: boolean; content: Array<{ text: string }> } }>();
+      expect(body.result.isError, contentType).toBe(true);
+      expect(body.result.content[0]?.text).toContain("only HTML and Markdown");
+    }
+    for (const name of ["report.md", "report.html"]) {
+      const response = await rpc("tools/call", { name: "publish_artifact", arguments: {
+        agent: "codex", type: "report", name, contentType: "text/markdown", content: "# Report",
+      } });
+      const body = await response.json<{ result: { isError: boolean } }>();
+      expect(body.result.isError).toBe(true);
+    }
+    expect((await env.STORAGE.list()).objects).toHaveLength(0);
+  });
+
   it("accepts arbitrary valid custom agent slugs", async () => {
     const published = await rpc("tools/call", {
       name: "publish_artifact",

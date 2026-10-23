@@ -73,3 +73,51 @@ test("publish passes public and private visibility and rejects conflicting flags
     expect((await run([...args, "--visibility", "invalid"], env)).code).toBe(1);
   } finally { await server.stop(true); }
 });
+
+test("publish rejects binary files and suffixed names before making any request", async () => {
+  let requests = 0;
+  const server = Bun.serve({ port: 0, fetch() { requests += 1; return Response.json({}); } });
+  const directory = await mkdtemp(join(tmpdir(), "artifacts-format-test-"));
+  directories.push(directory);
+  const env = { ARTIFACTS_BASE_URL: `http://localhost:${String(server.port)}`, ARTIFACTS_ACCESS_CLIENT_ID: "test-client", ARTIFACTS_ACCESS_CLIENT_SECRET: "test-secret" };
+  try {
+    for (const extension of ["pdf", "png", "mp3", "mp4", "docx", "json"]) {
+      const file = join(directory, `file.${extension}`);
+      await writeFile(file, "bytes");
+      const result = await run(["publish", file, "--agent", "codex", "--type", "report", "--name", "test"], env);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Only HTML and Markdown");
+    }
+    const file = join(directory, "report.md");
+    await writeFile(file, "# Report");
+    for (const name of ["report.html", "report.md"]) {
+      const result = await run(["publish", file, "--agent", "codex", "--type", "report", "--name", name], env);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("extensionless");
+    }
+    expect(requests).toBe(0);
+  } finally { await server.stop(true); }
+});
+
+test("get --download requests the original Markdown at the extensionless URL", async () => {
+  const source = "# Original Markdown\n";
+  const observed: { accept: string | null } = { accept: null };
+  const server = Bun.serve({ port: 0, fetch(request) {
+    if (new URL(request.url).pathname.startsWith("/api/")) {
+      return Response.json({ artifact: { url: new URL("/codex/report/readme", request.url).href } });
+    }
+    observed.accept = request.headers.get("Accept");
+    return new Response(observed.accept === "text/markdown" ? source : "<h1>Rendered</h1>");
+  } });
+  const directory = await mkdtemp(join(tmpdir(), "artifacts-download-test-"));
+  directories.push(directory);
+  const file = join(directory, "readme.md");
+  try {
+    const result = await run(["get", "codex/report/readme", "--download", file], {
+      ARTIFACTS_BASE_URL: `http://localhost:${String(server.port)}`, ARTIFACTS_ACCESS_CLIENT_ID: "test-client", ARTIFACTS_ACCESS_CLIENT_SECRET: "test-secret",
+    });
+    expect(result.code).toBe(0);
+    expect(observed.accept).toBe("text/markdown");
+    expect(await readFile(file, "utf8")).toBe(source);
+  } finally { await server.stop(true); }
+});

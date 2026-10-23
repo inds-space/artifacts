@@ -13,11 +13,11 @@ When connecting a user or deploying an instance, read [the setup guide](referenc
 
 ## Workflow
 
-1. Produce the requested artifact as HTML, PDF, Markdown, an image, audio, or video. Prefer self-contained HTML when no format is specified.
+1. Produce the requested artifact as HTML or Markdown. Publish other file formats to the CDN. Prefer self-contained HTML when no format is specified.
 2. Choose the current agent namespace: `claude`, `codex`, `antigravity`, `chatgpt`, or a custom lowercase kebab-case agent slug.
 3. Choose an existing artifact type. Run `artifacts type list` when uncertain.
 4. If the requested type does not exist, add a concise lowercase kebab-case type with `artifacts type add <type>`.
-5. Choose a stable lowercase kebab-case name, then publish:
+5. Choose a stable extensionless lowercase kebab-case name (never append `.html` or `.md`), then publish:
 
 ```powershell
 artifacts publish <file> --agent codex --type plan --name artifact-cli-proposal
@@ -42,7 +42,7 @@ artifacts type add research-brief
 
 ## Publishing rules
 
-- Only publish HTML, PDF, Markdown, images, audio, or video. Plain text, CSS, CSV, JSON, archives, executables, and all other formats are rejected.
+- Only publish HTML or Markdown. Plain text, CSS, CSV, JSON, archives, executables, and all other formats are rejected.
 - New artifacts default to private. To share without Access login, publish with CLI `--public` or `--visibility public`, or MCP `visibility: "public"`. Public URLs are `/public/<agent>/<type>/<name>`.
 - Re-publishing preserves visibility when omitted. Use CLI `--private` or MCP `visibility: "private"` to revoke public access immediately.
 - Filter by visibility with `artifacts list --visibility public` or MCP `list_artifacts` with `visibility: "public"`.

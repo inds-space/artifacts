@@ -16,6 +16,7 @@ export default defineConfig({
     }),
   ],
   test: {
+    deps: { optimizer: { ssr: { enabled: true, include: ["sanitize-html"] } } },
     include: ["test/**/*.test.ts"],
   },
 });

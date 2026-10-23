@@ -101,21 +101,17 @@ describe("artifacts Worker", () => {
     expect(body.types.map((item) => item.name)).toContain("research-brief");
   });
 
-  it("accepts only HTML, PDF, Markdown, images, audio, and video", async () => {
+  it("accepts only HTML and Markdown", async () => {
     await resetBindings();
     const accepted = [
       ["html", "text/html; charset=utf-8"],
       ["markdown", "text/markdown; charset=utf-8"],
-      ["pdf", "application/pdf"],
-      ["image", "image/png"],
-      ["audio", "audio/mpeg"],
-      ["video", "video/mp4"],
     ] as const;
     for (const [name, contentType] of accepted) {
       const response = await publish("codex", "report", name, "allowed bytes", contentType);
       expect(response.status, `${contentType} should be accepted`).toBe(201);
     }
-    for (const [name, contentType] of [["text", "text/plain"], ["css", "text/css"], ["csv", "text/csv"], ["json", "application/json"], ["opaque", "application/octet-stream"]] as const) {
+    for (const [name, contentType] of [["pdf", "application/pdf"], ["image", "image/png"], ["audio", "audio/mpeg"], ["video", "video/mp4"], ["word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"], ["svg", "image/svg+xml"], ["text", "text/plain"], ["css", "text/css"], ["csv", "text/csv"], ["json", "application/json"], ["opaque", "application/octet-stream"]] as const) {
       const response = await publish("codex", "report", name, "rejected bytes", contentType);
       expect(response.status, `${contentType} should be rejected`).toBe(415);
     }
@@ -125,6 +121,46 @@ describe("artifacts Worker", () => {
       method: "POST", headers: { ...ACCESS_HEADERS, "Content-Type": "text/html", "X-Artifact-SHA256": "bad" }, body: "<h1>x</h1>",
     }));
     expect(badHash.status).toBe(400);
+  });
+
+  it("serves Markdown as HTML at extensionless private and public URLs while retaining the source", async () => {
+    await resetBindings();
+    const source = "# A report\n\n| A | B |\n| - | - |\n| one | two |\n\n- [x] Done\n\n<script>alert(1)</script>";
+    const created = await publish("codex", "report", "markdown-demo", source, "Text/Markdown; charset=utf-8");
+    expect(created.status).toBe(201);
+    const result = await created.json<{ artifact: { url: string; contentType: string } }>();
+    expect(result.artifact.url).toBe(`${env.PUBLIC_BASE_URL}/codex/report/markdown-demo`);
+    expect(result.artifact.contentType).toBe("Text/Markdown; charset=utf-8");
+    const path = "http://localhost/codex/report/markdown-demo";
+    const viewed = await dispatch(new Request(path, { headers: ACCESS_HEADERS }));
+    expect(viewed.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(viewed.headers.get("Content-Security-Policy")).not.toContain("script-src 'unsafe-inline'");
+    const html = await viewed.text();
+    expect(html).toContain('<h1 id="user-content-a-report">A report</h1>');
+    expect(html).toContain("<table>");
+    expect(html).not.toContain("<script>");
+    const raw = await dispatch(new Request(path, { headers: { ...ACCESS_HEADERS, Accept: "text/markdown" } }));
+    expect(raw.headers.get("Content-Type")).toBe("Text/Markdown; charset=utf-8");
+    expect(raw.headers.get("Vary")).toBe("Accept");
+    expect(raw.headers.get("ETag")).not.toBe(viewed.headers.get("ETag"));
+    expect(await raw.text()).toBe(source);
+    const head = await dispatch(new Request(path, { method: "HEAD", headers: ACCESS_HEADERS }));
+    expect(head.headers.get("ETag")).toBe(viewed.headers.get("ETag"));
+    expect(head.headers.get("Content-Type")).toBe(viewed.headers.get("Content-Type"));
+    expect(await head.text()).toBe("");
+    expect((await dispatch(new Request(path, { headers: { ...ACCESS_HEADERS, "If-None-Match": viewed.headers.get("ETag") ?? "" } }))).status).toBe(304);
+    const row = await env.DB.prepare("SELECT current_object_key FROM artifacts WHERE slug = 'markdown-demo'").first<{ current_object_key: string }>();
+    if (!row) throw new Error("Published row missing");
+    const stored = await env.STORAGE.get(row.current_object_key);
+    if (!stored) throw new Error("Published source missing");
+    expect(await stored.text()).toBe(source);
+    await env.DB.prepare("UPDATE artifacts SET visibility = 'public' WHERE slug = 'markdown-demo'").run();
+    const publicView = await dispatch(new Request("http://localhost/public/codex/report/markdown-demo"));
+    expect(await publicView.text()).toBe(html);
+    for (const extension of ["md", "html"]) {
+      expect((await publish("codex", "report", `has-extension.${extension}`, source)).status).toBe(400);
+      expect((await dispatch(new Request(`${path}.${extension}`, { headers: ACCESS_HEADERS }))).status).toBe(400);
+    }
   });
 
   it("soft-deletes for 24 hours and removes the canonical route", async () => {

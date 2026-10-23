@@ -1,3 +1,4 @@
+import { MAX_MARKDOWN_BYTES, renderMarkdown } from "./markdown";
 import { artifactUrl, parseVisibility, type Visibility } from "./visibility";
 import { AGENTS, isAgent, isRenderableContentType, NAME_PATTERN, TYPE_PATTERN, type Agent } from "./constants";
 import { json, landing, methodNotAllowed, secureHeaders } from "./http";
@@ -101,7 +102,7 @@ async function getArtifact(env: CloudflareBindings, agent: Agent, type: string, 
 function parseUpload(request: Request): { contentType: string; sha256: string; sizeBytes: number | null; body: ReadableStream } {
   if (!request.body) throw new HttpError(400, "Upload body is required");
   const contentType = request.headers.get("Content-Type")?.trim() ?? "";
-  if (!isRenderableContentType(contentType)) throw new HttpError(415, "Only HTML, PDF, Markdown, image, audio, and video files are accepted");
+  if (!isRenderableContentType(contentType)) throw new HttpError(415, "Only HTML and Markdown files are accepted; publish other files to your CDN");
   const sha256 = request.headers.get("X-Artifact-SHA256")?.trim().toLowerCase() ?? "";
   if (!/^[a-f0-9]{64}$/.test(sha256)) throw new HttpError(400, "X-Artifact-SHA256 must be a lowercase SHA-256 hex digest");
   const length = request.headers.get("Content-Length");
@@ -218,18 +219,27 @@ async function handleTypes(request: Request, env: CloudflareBindings): Promise<R
 async function serveArtifact(request: Request, env: CloudflareBindings, agent: Agent, type: string, slug: string, publicOnly = false): Promise<Response> {
   const row = await getArtifact(env, agent, type, slug);
   if (!row || (publicOnly && row.visibility !== "public")) throw new HttpError(404, "Artifact not found");
-  const etag = `"${row.sha256}"`;
-  if (request.headers.get("If-None-Match") === etag) return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "no-store, no-transform" } });
+  const markdownSource = row.content_type.split(";", 1)[0]?.trim().toLowerCase() === "text/markdown";
+  const wantsSource = request.headers.get("Accept")?.trim().toLowerCase() === "text/markdown";
+  const markdown = markdownSource && !wantsSource;
+  const etag = markdown ? `W/"${row.sha256}-markdown-v1"` : `"${row.sha256}"`;
+  if (request.headers.get("If-None-Match") === etag) return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "no-store, no-transform", ...(markdownSource ? { Vary: "Accept" } : {}) } });
   const object = await env.STORAGE.get(row.current_object_key);
   if (!object) throw new HttpError(404, "Artifact object missing");
   const headers = secureHeaders();
-  headers.set("Content-Type", row.content_type);
+  if (markdownSource) headers.set("Vary", "Accept");
+  headers.set("Content-Type", markdown ? "text/html; charset=utf-8" : row.content_type);
   headers.set("Content-Disposition", "inline");
   headers.set("Cache-Control", "no-store, no-transform");
   headers.set("ETag", etag);
   headers.set("X-Artifact-Version", String(row.current_version));
   headers.set("X-Artifact-Type", row.artifact_type);
   headers.set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; connect-src 'none'; font-src data:; form-action 'none'; frame-ancestors 'none'; img-src data: blob:; media-src data: blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+  if (markdown) {
+    if (object.size > MAX_MARKDOWN_BYTES) throw new HttpError(413, "Markdown is too large to render (maximum 8 MiB)");
+    headers.set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; img-src https: http: data:; style-src 'unsafe-inline'");
+    return new Response(request.method === "HEAD" ? null : renderMarkdown(await object.text(), row.slug), { headers });
+  }
   return new Response(request.method === "HEAD" ? null : object.body, { headers });
 }
 

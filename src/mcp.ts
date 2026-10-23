@@ -80,7 +80,7 @@ const TOOLS: ToolDefinition[] = [
       properties: {
         agent: AGENT_SCHEMA,
         type: { type: "string" },
-        name: { type: "string" },
+        name: { type: "string", pattern: NAME_PATTERN.source, description: "Extensionless lowercase kebab-case name; do not append .html or .md." },
         includeContent: { type: "boolean", default: false },
       },
       required: ["agent", "type", "name"],
@@ -95,8 +95,8 @@ const TOOLS: ToolDefinition[] = [
       properties: {
         agent: AGENT_SCHEMA,
         type: { type: "string" },
-        name: { type: "string" },
-        contentType: { type: "string", description: "Supported media type such as text/markdown, text/html, application/pdf, image/png, audio/mpeg, or video/mp4." },
+        name: { type: "string", pattern: NAME_PATTERN.source, description: "Extensionless lowercase kebab-case name; do not append .html or .md." },
+        contentType: { type: "string", description: "Only text/markdown or text/html, optionally with charset=utf-8. Publish other file formats to your CDN." },
         content: { type: "string" },
         visibility: { type: "string", enum: ["private", "public"], description: "New artifacts default to private. Omit on replacement to preserve visibility; public allows anyone with the URL to read the content." },
         encoding: { type: "string", enum: ["utf8", "base64"], default: "utf8" },
@@ -113,7 +113,7 @@ const TOOLS: ToolDefinition[] = [
       properties: {
         agent: AGENT_SCHEMA,
         type: { type: "string" },
-        name: { type: "string" },
+        name: { type: "string", pattern: NAME_PATTERN.source, description: "Extensionless lowercase kebab-case name; do not append .html or .md." },
       },
       required: ["agent", "type", "name"],
       additionalProperties: false,
@@ -302,7 +302,7 @@ async function publishArtifact(env: CloudflareBindings, args: Record<string, unk
     catch { throw new McpToolError("visibility must be private or public"); }
   }
   const contentType = stringArg(args, "contentType");
-  if (!isRenderableContentType(contentType)) throw new McpToolError("Unsupported contentType. Artifacts accepts HTML, PDF, Markdown, image, audio, and video media types.");
+  if (!isRenderableContentType(contentType)) throw new McpToolError("Unsupported contentType. Artifacts accepts only HTML and Markdown; publish other files to your CDN.");
   if (typeof args.content !== "string") throw new McpToolError("content must be a string");
   const encoding = args.encoding ?? "utf8";
   if (encoding !== "utf8" && encoding !== "base64") throw new McpToolError("encoding must be utf8 or base64");
