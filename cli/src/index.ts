@@ -3,6 +3,7 @@
 import { chmod, copyFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { remoteImageWarnings } from "../../src/html-warnings";
 
 export {};
 
@@ -285,6 +286,7 @@ async function publish(args: string[], config: Required<Config>): Promise<void> 
   const raw: unknown = await response.json();
   if (!response.ok) fail(errorMessage(raw, `HTTP ${String(response.status)}`));
   const body = raw as ArtifactEnvelope;
+  if (contentType.startsWith("text/html")) for (const warning of remoteImageWarnings(await file.text())) console.error(`warning: ${warning}`);
   console.log(body.artifact.url);
 }
 

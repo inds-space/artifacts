@@ -75,6 +75,26 @@ The MCP server accepts protocol versions `2026-07-28`, `2025-11-25`, `2025-06-18
 
 MCP publishing accepts HTML and Markdown as UTF-8 text or base64-encoded UTF-8 bytes. Publish payloads are limited to 8 MiB and inline reads to 256 KiB; larger artifacts should be consumed through their canonical URL.
 
+## HTML images and the Content-Security-Policy
+
+HTML artifacts are served with this CSP:
+
+```text
+default-src 'none'; base-uri 'none'; connect-src 'none'; font-src data:; form-action 'none'; frame-ancestors 'none'; img-src data: blob:; media-src data: blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'
+```
+
+Remote and relative image URLs (`<img src="https://…">`, `srcset`, CSS `url(…)`) are blocked and render as broken images, even though publishing succeeds. Embed images as data URLs (or create `blob:` URLs from inline script), and resize them so the whole artifact stays under the 8 MiB publish limit. Linking to the original source is fine:
+
+```html
+<a href="https://example.com/full.png"><img alt="Screenshot" src="data:image/png;base64,iVBORw0KGgo..."></a>
+```
+
+```bash
+echo "data:image/png;base64,$(base64 -w0 screenshot.png)"
+```
+
+MCP `publish_artifact` returns a `warnings` array, and the CLI prints `warning:` lines to stderr, when HTML references images the CSP will block. Markdown artifacts are rendered with `img-src https: http: data:`, so remote images work there.
+
 ## Public artifacts
 
 MCP and CLI ship public publishing together. In MCP `publish_artifact`, set `visibility: "public"`. In CLI, use `--public` or `--visibility public`:
