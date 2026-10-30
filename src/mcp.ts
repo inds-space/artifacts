@@ -1,3 +1,4 @@
+import { remoteImageWarnings } from "./html-warnings";
 import { artifactUrl, parseVisibility, type Visibility } from "./visibility";
 import { AGENTS, AGENT_PATTERN, isAgent, isRenderableContentType, NAME_PATTERN, TYPE_PATTERN, type Agent } from "./constants";
 
@@ -89,7 +90,7 @@ const TOOLS: ToolDefinition[] = [
   },
   {
     name: "publish_artifact",
-    description: "Create or replace an artifact. Set visibility to public for an unauthenticated /public/<agent>/<type>/<name> URL, or private to revoke public access. New artifacts default to private; replacements preserve visibility when omitted. Content may be UTF-8 or base64; SHA-256 is computed automatically.",
+    description: "Create or replace an artifact. Set visibility to public for an unauthenticated /public/<agent>/<type>/<name> URL, or private to revoke public access. New artifacts default to private; replacements preserve visibility when omitted. Content may be UTF-8 or base64; SHA-256 is computed automatically. HTML is served with a CSP that only allows data: and blob: images, so embed images as data: URLs; remote image URLs are reported in warnings.",
     inputSchema: {
       type: "object",
       properties: {
@@ -348,7 +349,8 @@ async function publishArtifact(env: CloudflareBindings, args: Record<string, unk
 
   const row = await getArtifact(env, agent, type, slug);
   if (!row) throw new Error("Published artifact could not be reloaded");
-  return { artifact: artifactJson(env, row), created: !existing };
+  const warnings = contentType.toLowerCase().includes("text/html") ? remoteImageWarnings(new TextDecoder().decode(bytes)) : [];
+  return { artifact: artifactJson(env, row), created: !existing, ...(warnings.length ? { warnings } : {}) };
 }
 
 async function deleteArtifact(env: CloudflareBindings, args: Record<string, unknown>) {
