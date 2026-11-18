@@ -96,7 +96,7 @@ describe("artifacts MCP", () => {
     expect(agent?.description).toContain("Custom agent names are supported");
   });
 
-  it("warns when HTML references images the CSP blocks", async () => {
+  it("warns when HTML references images that won't load", async () => {
     const publish = async (content: string, name: string) => {
       const response = await rpc("tools/call", { name: "publish_artifact", arguments: {
         agent: "codex", type: "report", name, contentType: "text/html; charset=utf-8", content,
@@ -105,11 +105,12 @@ describe("artifacts MCP", () => {
       expect(body.result.isError).not.toBe(true);
       return JSON.parse(body.result.content[0]?.text ?? "{}") as { warnings?: string[] };
     };
-    const remote = await publish(`<img src="https://example.com/a.png"><img srcset="b.png 1x, data:image/png;base64,AA 2x"><div style="background:url('https://example.com/c.png')"></div>`, "remote-images");
-    expect(remote.warnings?.[0]).toContain("3 image URL(s)");
-    expect(remote.warnings?.[0]).toContain("https://example.com/a.png");
-    expect(remote.warnings?.[0]).not.toContain("data:image/png;base64,AA");
-    const embedded = await publish(`<a href="https://example.com"><img src="data:image/png;base64,AA"></a>`, "embedded-images");
+    const broken = await publish(`<img src="http://example.com/a.png"><img srcset="b.png 1x, data:image/png;base64,AA 2x"><div style="background:url('/c.png')"></div><img src="https://example.com/ok.png">`, "broken-images");
+    expect(broken.warnings?.[0]).toContain("3 image URL(s)");
+    expect(broken.warnings?.[0]).toContain("http://example.com/a.png");
+    expect(broken.warnings?.[0]).not.toContain("data:image/png;base64,AA");
+    expect(broken.warnings?.[0]).not.toContain("https://example.com/ok.png");
+    const embedded = await publish(`<a href="https://example.com"><img src="data:image/png;base64,AA"><img src="https://example.com/a.png"></a>`, "embedded-images");
     expect(embedded.warnings).toBeUndefined();
   });
 

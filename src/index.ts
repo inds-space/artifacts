@@ -234,7 +234,7 @@ async function serveArtifact(request: Request, env: CloudflareBindings, agent: A
   headers.set("ETag", etag);
   headers.set("X-Artifact-Version", String(row.current_version));
   headers.set("X-Artifact-Type", row.artifact_type);
-  headers.set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; connect-src 'none'; font-src data:; form-action 'none'; frame-ancestors 'none'; img-src data: blob:; media-src data: blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+  headers.set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; connect-src 'none'; font-src data:; form-action 'none'; frame-ancestors 'none'; img-src data: blob: https:; media-src data: blob: https:; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
   if (markdown) {
     if (object.size > MAX_MARKDOWN_BYTES) throw new HttpError(413, "Markdown is too large to render (maximum 8 MiB)");
     headers.set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; img-src https: http: data:; style-src 'unsafe-inline'");

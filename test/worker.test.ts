@@ -208,6 +208,7 @@ describe("public artifacts", () => {
     expect(viewed.status).toBe(200);
     expect(viewed.headers.get("Cache-Control")).toBe("no-store, no-transform");
     expect(viewed.headers.get("Content-Security-Policy")).toContain("connect-src 'none'");
+    expect(viewed.headers.get("Content-Security-Policy")).toContain("img-src data: blob: https:");
     await expect(viewed.text()).resolves.toBe("<h1>Public test</h1>");
     const head = await dispatch(new Request(publicUrl, { method: "HEAD" }));
     expect(head.status).toBe(200);
