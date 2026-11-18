@@ -42,7 +42,7 @@ artifacts type add research-brief
 
 ## Publishing rules
 
-- HTML artifacts only load `data:` and `blob:` images (CSP `img-src data: blob:`); remote or relative image URLs render broken. Embed resized images as data URLs and stay under the 8 MiB publish limit, or use Markdown, which allows remote images. Act on any `warnings` returned by publish.
+- HTML artifacts load images from absolute `https:` URLs and `data:`/`blob:` URLs (CSP `img-src data: blob: https:`). Relative image paths render broken: the artifacts host serves only the page, never its neighbouring files. Use absolute https URLs, or embed resized images as data URLs within the 8 MiB publish limit. Act on any `warnings` returned by publish.
 - Only publish HTML or Markdown. Plain text, CSS, CSV, JSON, archives, executables, and all other formats are rejected.
 - New artifacts default to private. To share without Access login, publish with CLI `--public` or `--visibility public`, or MCP `visibility: "public"`. Public URLs are `/public/<agent>/<type>/<name>`.
 - Re-publishing preserves visibility when omitted. Use CLI `--private` or MCP `visibility: "private"` to revoke public access immediately.

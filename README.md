@@ -80,20 +80,21 @@ MCP publishing accepts HTML and Markdown as UTF-8 text or base64-encoded UTF-8 b
 HTML artifacts are served with this CSP:
 
 ```text
-default-src 'none'; base-uri 'none'; connect-src 'none'; font-src data:; form-action 'none'; frame-ancestors 'none'; img-src data: blob:; media-src data: blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'
+default-src 'none'; base-uri 'none'; connect-src 'none'; font-src data:; form-action 'none'; frame-ancestors 'none'; img-src data: blob: https:; media-src data: blob: https:; script-src 'unsafe-inline'; style-src 'unsafe-inline'
 ```
 
-Remote and relative image URLs (`<img src="https://…">`, `srcset`, CSS `url(…)`) are blocked and render as broken images, even though publishing succeeds. Embed images as data URLs (or create `blob:` URLs from inline script), and resize them so the whole artifact stays under the 8 MiB publish limit. Linking to the original source is fine:
+Images and media load from absolute `https:` URLs (your CDN, a site, a public bucket), `data:` URLs and `blob:` URLs. Relative URLs resolve to the artifacts host, which serves only the artifact itself, so they render as broken images; `http:` URLs are blocked. Scripts still can't make network requests (`connect-src 'none'`). For a self-contained artifact, embed images as data URLs and keep the whole artifact under the 8 MiB publish limit:
 
 ```html
-<a href="https://example.com/full.png"><img alt="Screenshot" src="data:image/png;base64,iVBORw0KGgo..."></a>
+<img alt="Screenshot" src="https://cdn.example.com/screenshot.webp">
+<img alt="Logo" src="data:image/png;base64,iVBORw0KGgo...">
 ```
 
 ```bash
 echo "data:image/png;base64,$(base64 -w0 screenshot.png)"
 ```
 
-MCP `publish_artifact` returns a `warnings` array, and the CLI prints `warning:` lines to stderr, when HTML references images the CSP will block. Markdown artifacts are rendered with `img-src https: http: data:`, so remote images work there.
+MCP `publish_artifact` returns a `warnings` array, and the CLI prints `warning:` lines to stderr, when HTML references images that won't load (relative or `http:` URLs). Markdown artifacts are rendered with `img-src https: http: data:`, so remote images work there.
 
 ## Public artifacts
 
