@@ -90,7 +90,7 @@ const TOOLS: ToolDefinition[] = [
   },
   {
     name: "publish_artifact",
-    description: "Create or replace an artifact. Set visibility to public for an unauthenticated /public/<agent>/<type>/<name> URL, or private to revoke public access. New artifacts default to private; replacements preserve visibility when omitted. Content may be UTF-8 or base64; SHA-256 is computed automatically. HTML is served with a CSP that only allows data: and blob: images, so embed images as data: URLs; remote image URLs are reported in warnings.",
+    description: "Create or replace an artifact. Set visibility to public for an unauthenticated /public/<agent>/<type>/<name> URL, or private to revoke public access. New artifacts default to private; replacements preserve visibility when omitted. Content may be UTF-8 or base64; SHA-256 is computed automatically. HTML images load from absolute https:, data: and blob: URLs; relative and http: image URLs are reported in warnings because they won't load.",
     inputSchema: {
       type: "object",
       properties: {
